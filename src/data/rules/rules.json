@@ -1,0 +1,74 @@
+[
+  {
+    "id": "fee-structure",
+    "category": "fee",
+    "title": "市场手续费结构",
+    "content": "Steam 社区市场每笔成交收取：Steam 平台费 5% + 游戏特定费 10%（CS2/Dota2/TF2 等，按卖家到手价计算）。示例：买家支付 34.50，卖家到手 30.00，其中 1.50 归 Steam、3.00 归游戏。",
+    "source": "Steam 官方及公开资料",
+    "updatedAt": "2026-08-01"
+  },
+  {
+    "id": "fee-payer",
+    "category": "fee",
+    "title": "费用承担与税费",
+    "content": "交易费用从卖家所得中扣除；部分地区买家在结算时可能被另行收取销售税。实际结算金额以 Steam 页面为准。",
+    "source": "Steam 官方及公开资料",
+    "updatedAt": "2026-08-01"
+  },
+  {
+    "id": "protection-7d",
+    "category": "protection",
+    "title": "7 天交易保护期",
+    "content": "CS2 饰品在交易或市场购买后进入 7×24 小时交易保护期，期内不可被消耗、修改或转移（如开箱、贴纸等）。保护期按进入库存时间精确计算，先买先解锁。",
+    "source": "Steam 官方公告及 BUFF 解读",
+    "updatedAt": "2026-08-01"
+  },
+  {
+    "id": "protection-undo",
+    "category": "protection",
+    "title": "撤销交易惩罚",
+    "content": "保护期内可申请撤销交易取回物品，但申请后该账号 30 天内无法使用市场与交易功能，且客服不提前解除。",
+    "source": "Steam 官方公告",
+    "updatedAt": "2026-08-01"
+  },
+  {
+    "id": "wallet-nonwithdraw",
+    "category": "wallet",
+    "title": "钱包余额不可提现",
+    "content": "Steam 钱包余额只能用于 Steam 生态消费（购买游戏、DLC、市场物品等），不可提现或转账给他人。",
+    "source": "Steam 官方",
+    "updatedAt": "2026-08-01"
+  },
+  {
+    "id": "buy-order",
+    "category": "buy_order",
+    "title": "求购单机制",
+    "content": "可为物品挂出求购价（即买家最高愿付价格），提交后资金被预留；有卖家按该价或更低挂出时自动成交，按求购顺序匹配。",
+    "source": "Steam 官方",
+    "updatedAt": "2026-08-01"
+  },
+  {
+    "id": "listing-fees",
+    "category": "listing",
+    "title": "上架与费用预览",
+    "content": "上架时可分别填写'买家支付'与'卖家到手'，系统自动补全费用差价；同一物品可挂多份。价格须在市场允许的上下限内。",
+    "source": "Steam 官方",
+    "updatedAt": "2026-08-01"
+  },
+  {
+    "id": "account-requirement",
+    "category": "restriction",
+    "title": "账号与地区限制",
+    "content": "使用市场通常要求账号有有效购买记录、启用 Steam 令牌保护（Steam Guard）一段时间；部分国家/地区或受限账号无法使用市场，且存在本地货币与汇率差异。",
+    "source": "Steam 官方",
+    "updatedAt": "2026-08-01"
+  },
+  {
+    "id": "price-limits",
+    "category": "other",
+    "title": "价格上下限",
+    "content": "市场挂单价格有最低与最高限制（约 0.03 美元至 1800 美元区间，以页面实际为准），超出范围的物品无法在市场上架。",
+    "source": "Steam 官方及公开资料",
+    "updatedAt": "2026-08-01"
+  }
+]

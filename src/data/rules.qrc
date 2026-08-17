@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/rules">
+        <file>rules/rules.json</file>
+    </qresource>
+</RCC>

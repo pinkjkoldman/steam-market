@@ -1,0 +1,483 @@
+openapi: 3.0.3
+info:
+  title: Steam Market Terminal v4 Internal Service Contract
+  version: 4.0.0-cr003
+  description: >-
+    Qt desktop internal service contract. Paths describe UI-to-service boundaries;
+    they are not exposed as a network server. Market submission remains in the
+    Steam official WebView2 page and is not represented as a transaction API.
+servers:
+  - url: local://steam-market-terminal/v4
+
+paths:
+  /session:
+    get:
+      operationId: getSessionStatus
+      responses:
+        '200':
+          description: Current Steam session state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionStatus' }
+  /session/login-window:
+    post:
+      operationId: openSteamLoginWindow
+      responses:
+        '202':
+          description: Official Steam login window opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginWindowState' }
+        '503': { $ref: '#/components/responses/Error' }
+  /session/logout:
+    post:
+      operationId: logoutSteamSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clearLocalSession]
+              properties:
+                clearLocalSession: { type: boolean, default: true }
+      responses:
+        '204': { description: Session and in-memory cookies cleared }
+        '500': { $ref: '#/components/responses/Error' }
+
+  /inventory/contexts:
+    get:
+      operationId: listInventoryContexts
+      responses:
+        '200':
+          description: Configured inventory contexts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/InventoryContext' }
+  /inventory/syncs:
+    post:
+      operationId: startInventorySync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contexts:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items: { $ref: '#/components/schemas/InventoryContextKey' }
+                force: { type: boolean, default: false }
+                publicSteamId:
+                  type: string
+                  pattern: '^[0-9]{17}$'
+                  nullable: true
+                  description: Anonymous public-inventory mode only
+      responses:
+        '202':
+          description: Sync started
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventorySync' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /inventory/syncs/{syncId}:
+    get:
+      operationId: getInventorySync
+      parameters:
+        - $ref: '#/components/parameters/SyncId'
+      responses:
+        '200':
+          description: Sync progress and diagnostics
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventorySync' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: cancelInventorySync
+      parameters:
+        - $ref: '#/components/parameters/SyncId'
+      responses:
+        '204': { description: Cancellation requested }
+        '404': { $ref: '#/components/responses/Error' }
+  /inventory/groups:
+    get:
+      operationId: listInventoryGroups
+      parameters:
+        - name: appid
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: contextId
+          in: query
+          schema: { type: string, pattern: '^[0-9]{1,20}$' }
+        - name: category
+          in: query
+          schema: { $ref: '#/components/schemas/InventoryCategory' }
+        - name: marketableOnly
+          in: query
+          schema: { type: boolean, default: false }
+        - name: query
+          in: query
+          schema: { type: string, maxLength: 128 }
+        - name: cursor
+          in: query
+          schema: { type: string, nullable: true }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 20, maximum: 500, default: 100 }
+      responses:
+        '200':
+          description: Stable-cursor inventory page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventoryGroupPage' }
+        '400': { $ref: '#/components/responses/Error' }
+
+  /listing-drafts:
+    post:
+      operationId: createListingDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateListingDraftRequest' }
+      responses:
+        '201':
+          description: Draft created and quotes calculated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListingDraft' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /listing-drafts/{draftId}:
+    get:
+      operationId: getListingDraft
+      parameters:
+        - $ref: '#/components/parameters/DraftId'
+      responses:
+        '200':
+          description: Draft detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListingDraft' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: abandonListingDraft
+      parameters:
+        - $ref: '#/components/parameters/DraftId'
+      responses:
+        '204': { description: Draft marked abandoned }
+        '404': { $ref: '#/components/responses/Error' }
+  /listing-drafts/{draftId}/handoff:
+    post:
+      operationId: prepareOfficialSteamHandoff
+      description: >-
+        Validates inventory freshness and builds Steam official page batches.
+        Does not submit a listing or fill/confirm a Steam form.
+      parameters:
+        - $ref: '#/components/parameters/DraftId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [openBatch]
+              properties:
+                openBatch: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Batch opened in controlled Steam WebView
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HandoffResult' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /diagnostics:
+    get:
+      operationId: getDiagnostics
+      parameters:
+        - name: correlationId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Sanitized diagnostic event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiagnosticEvent' }
+        '404': { $ref: '#/components/responses/Error' }
+
+components:
+  parameters:
+    SyncId:
+      name: syncId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DraftId:
+      name: draftId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  schemas:
+    SessionStatus:
+      type: object
+      required: [state, webViewRuntimeAvailable]
+      properties:
+        state:
+          type: string
+          enum: [anonymous, authenticating, authenticated, expired, unavailable]
+        steamId:
+          type: string
+          pattern: '^[0-9]{17}$'
+          nullable: true
+        displayName: { type: string, maxLength: 128, nullable: true }
+        lastVerifiedAt: { type: string, format: date-time, nullable: true }
+        webViewRuntimeAvailable: { type: boolean }
+        reasonCode: { type: string, nullable: true }
+    LoginWindowState:
+      type: object
+      required: [state, allowedHost]
+      properties:
+        state: { type: string, enum: [opening, open, verified, closed, failed] }
+        allowedHost: { type: string, enum: [login.steampowered.com] }
+        correlationId: { type: string, format: uuid }
+    InventoryContextKey:
+      type: object
+      required: [appid, contextId]
+      properties:
+        appid: { type: integer, minimum: 1 }
+        contextId: { type: string, pattern: '^[0-9]{1,20}$' }
+    InventoryContext:
+      allOf:
+        - $ref: '#/components/schemas/InventoryContextKey'
+        - type: object
+          required: [label, defaultEnabled]
+          properties:
+            label: { type: string, maxLength: 64 }
+            defaultEnabled: { type: boolean }
+            lastSuccessfulSyncAt: { type: string, format: date-time, nullable: true }
+    InventorySync:
+      type: object
+      required: [syncId, state, contexts, pageCount, assetCount, startedAt]
+      properties:
+        syncId: { type: string, format: uuid }
+        state: { type: string, enum: [running, completed, failed, cancelled, rate_limited] }
+        contexts:
+          type: array
+          items: { $ref: '#/components/schemas/InventoryContextKey' }
+        currentContext: { $ref: '#/components/schemas/InventoryContextKey' }
+        pageCount: { type: integer, minimum: 0 }
+        assetCount: { type: integer, minimum: 0 }
+        retryAfterSeconds: { type: integer, minimum: 0, nullable: true }
+        errorCode: { type: string, nullable: true }
+        startedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+        staleCacheAvailable: { type: boolean, default: false }
+    InventoryCategory:
+      type: string
+      enum: [trading_card, foil_card, emoticon, profile_background, game_item, unknown]
+    InventoryGroup:
+      type: object
+      required:
+        [groupKey, appid, contextId, marketHashName, displayName, category,
+         quantity, marketableQuantity, marketable, tradable, syncedAt, stale]
+      properties:
+        groupKey: { type: string, maxLength: 512 }
+        appid: { type: integer }
+        contextId: { type: string }
+        marketHashName: { type: string, maxLength: 256 }
+        displayName: { type: string, maxLength: 256 }
+        category: { $ref: '#/components/schemas/InventoryCategory' }
+        iconUrl: { type: string, format: uri, nullable: true }
+        quantity: { type: integer, minimum: 1 }
+        marketableQuantity: { type: integer, minimum: 0 }
+        blockedQuantity: { type: integer, minimum: 0 }
+        assetIds:
+          type: array
+          maxItems: 5000
+          items: { type: string, pattern: '^[0-9]{1,32}$' }
+        marketable: { type: boolean }
+        tradable: { type: boolean }
+        marketableAfter: { type: string, format: date-time, nullable: true }
+        lowestSellMinor: { type: integer, minimum: 0, nullable: true }
+        highestBuyMinor: { type: integer, minimum: 0, nullable: true }
+        quoteAt: { type: string, format: date-time, nullable: true }
+        syncedAt: { type: string, format: date-time }
+        stale: { type: boolean }
+    InventoryGroupPage:
+      type: object
+      required: [items, totalGroups, totalAssets, stale]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/InventoryGroup' }
+        nextCursor: { type: string, nullable: true }
+        totalGroups: { type: integer, minimum: 0 }
+        totalAssets: { type: integer, minimum: 0 }
+        stale: { type: boolean }
+        lastSuccessfulSyncAt: { type: string, format: date-time, nullable: true }
+    PricingStrategy:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [fixed, lowest_sell_minus_tick, highest_buy]
+        fixedBuyerPaysMinor:
+          type: integer
+          minimum: 1
+          nullable: true
+        ticksBelowLowest:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 1
+        minimumSellerReceivesMinor:
+          type: integer
+          minimum: 0
+          nullable: true
+    DraftSelection:
+      type: object
+      required: [groupKey, requestedQuantity]
+      properties:
+        groupKey: { type: string, maxLength: 512 }
+        requestedQuantity: { type: integer, minimum: 1, maximum: 5000 }
+    CreateListingDraftRequest:
+      type: object
+      required: [currency, inventorySyncedAt, strategy, selections]
+      properties:
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        inventorySyncedAt: { type: string, format: date-time }
+        keepPerGroup: { type: integer, minimum: 0, maximum: 999, default: 0 }
+        strategy: { $ref: '#/components/schemas/PricingStrategy' }
+        selections:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { $ref: '#/components/schemas/DraftSelection' }
+    DraftItem:
+      type: object
+      required:
+        [appid, contextId, marketHashName, inventoryQuantity, selectedQuantity, state]
+      properties:
+        appid: { type: integer }
+        contextId: { type: string }
+        marketHashName: { type: string, maxLength: 256 }
+        displayName: { type: string, maxLength: 256 }
+        inventoryQuantity: { type: integer, minimum: 1 }
+        selectedQuantity: { type: integer, minimum: 1 }
+        buyerPaysMinor: { type: integer, minimum: 0, nullable: true }
+        feeMinor: { type: integer, minimum: 0, nullable: true }
+        sellerReceivesMinor: { type: integer, minimum: 0, nullable: true }
+        state: { type: string, enum: [included, excluded, quote_failed, stale] }
+        exclusionReason:
+          type: string
+          enum:
+            [NOT_MARKETABLE, TRADE_HOLD, NO_QUOTE, BELOW_MIN_RECEIVE,
+             UNSUPPORTED_MULTI_SELL, STALE_INVENTORY]
+          nullable: true
+        quoteAt: { type: string, format: date-time, nullable: true }
+    ListingDraft:
+      type: object
+      required:
+        [draftId, status, currency, strategy, inventorySyncedAt, items,
+         includedGroups, includedAssets, issueCount, createdAt]
+      properties:
+        draftId: { type: string, format: uuid }
+        status: { type: string, enum: [draft, quoting, ready, handed_off, stale, abandoned] }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        strategy: { $ref: '#/components/schemas/PricingStrategy' }
+        inventorySyncedAt: { type: string, format: date-time }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DraftItem' }
+        includedGroups: { type: integer, minimum: 0 }
+        includedAssets: { type: integer, minimum: 0 }
+        issueCount: { type: integer, minimum: 0 }
+        totalBuyerPaysMinor: { type: integer, minimum: 0 }
+        totalFeeMinor: { type: integer, minimum: 0 }
+        totalSellerReceivesMinor: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    HandoffBatch:
+      type: object
+      required: [batchNo, appid, contextId, groupCount, officialUrl, status]
+      properties:
+        batchNo: { type: integer, minimum: 1 }
+        appid: { type: integer }
+        contextId: { type: string }
+        groupCount: { type: integer, minimum: 1, maximum: 40 }
+        officialUrl: { type: string, format: uri, maxLength: 1800 }
+        status: { type: string, enum: [ready, opened, abandoned] }
+        openedAt: { type: string, format: date-time, nullable: true }
+    HandoffResult:
+      type: object
+      required: [draftId, openedBatch, message, batches]
+      properties:
+        draftId: { type: string, format: uuid }
+        openedBatch: { type: integer, minimum: 1 }
+        message:
+          type: string
+          enum: [OPENED_FOR_REVIEW_NOT_SUBMITTED]
+        batches:
+          type: array
+          items: { $ref: '#/components/schemas/HandoffBatch' }
+    DiagnosticEvent:
+      type: object
+      required: [correlationId, code, severity, userMessage, recoverable, createdAt]
+      properties:
+        correlationId: { type: string, format: uuid }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        severity: { type: string, enum: [info, warning, error] }
+        userMessage: { type: string, maxLength: 500 }
+        recoverable: { type: boolean }
+        retryAfterSeconds: { type: integer, minimum: 0, nullable: true }
+        recommendedAction:
+          type: string
+          enum: [NONE, RETRY, WAIT, LOGIN, USE_CACHE, INSTALL_WEBVIEW_RUNTIME, OPEN_OFFICIAL_PAGE]
+        createdAt: { type: string, format: date-time }
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_ARGUMENT
+        - SESSION_REQUIRED
+        - SESSION_EXPIRED
+        - INVENTORY_PRIVATE
+        - INVENTORY_NOT_FOUND
+        - INVENTORY_CURSOR_STALLED
+        - RATE_LIMITED
+        - RESPONSE_TOO_LARGE
+        - PARSE_ERROR
+        - STALE_INVENTORY
+        - NO_MARKETABLE_ITEMS
+        - QUOTE_UNAVAILABLE
+        - UNSUPPORTED_MULTI_SELL
+        - WEBVIEW_RUNTIME_MISSING
+        - NAVIGATION_BLOCKED
+        - DATABASE_ERROR
+        - INTERNAL
+    Error:
+      type: object
+      required: [code, message, correlationId]
+      properties:
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        message: { type: string, maxLength: 500 }
+        correlationId: { type: string, format: uuid }
+        retryAfterSeconds: { type: integer, minimum: 0, nullable: true }
+
+  responses:
+    Error:
+      description: Sanitized error response
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

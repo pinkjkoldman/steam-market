@@ -1,0 +1,874 @@
+openapi: 3.0.2
+info:
+  title: Steam 行情终端 · 本地服务契约
+  description: |
+    Qt 桌面应用内部分层契约（UI → 服务层）。本契约以 OpenAPI 表达服务层方法签名、
+    请求/响应 DTO 与错误码；实现为 C++ 类，不要求实际 HTTP 服务。字段与 data-model.md 一致。
+  version: 1.0.0
+servers:
+  - url: internal://app
+    description: 进程内服务层调用（非网络服务）
+tags:
+  - name: market
+    description: 市场行情（F1/F2/F5）
+  - name: watchlist
+    description: 自选列表（F3）
+  - name: alerts
+    description: 价格提醒（F4）
+  - name: portfolio
+    description: 持仓估值（F6）
+  - name: price-sources
+    description: 第三方比价数据源（F9）
+  - name: settings
+    description: 设置（F7/F8）
+paths:
+  /market/search:
+    get:
+      tags: [market]
+      summary: 搜索 Steam 市场物品（对应 US-01）
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128 }
+        - name: appid
+          in: query
+          schema: { type: integer, default: 730 }
+        - name: currency
+          in: query
+          schema: { $ref: '#/components/schemas/Currency' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        '200':
+          description: 匹配物品列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MarketItem' }
+        '400': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /market/items/{marketHashName}/overview:
+    get:
+      tags: [market]
+      summary: 获取当前价与销量（对应 US-01/US-07）
+      parameters:
+        - { name: marketHashName, in: path, required: true, schema: { type: string, maxLength: 256 } }
+        - name: currency
+          in: query
+          schema: { $ref: '#/components/schemas/Currency' }
+      responses:
+        '200':
+          description: 价格概览
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceOverview' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /market/items/{marketHashName}/history:
+    get:
+      tags: [market]
+      summary: 获取历史走势（对应 US-02）
+      parameters:
+        - { name: marketHashName, in: path, required: true, schema: { type: string, maxLength: 256 } }
+        - name: currency
+          in: query
+          schema: { $ref: '#/components/schemas/Currency' }
+      responses:
+        '200':
+          description: 历史点序列
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryResponse' }
+        '502': { $ref: '#/components/responses/Error' }
+  /watchlist:
+    get:
+      tags: [watchlist]
+      summary: 自选列表（含最新价/涨跌幅，对应 US-03）
+      responses:
+        '200':
+          description: 自选项列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WatchlistItem' }
+    post:
+      tags: [watchlist]
+      summary: 加入自选（US-03）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WatchlistUpsert' }
+      responses:
+        '201': { description: 已添加 }
+        '409': { $ref: '#/components/responses/Error' }
+  /watchlist/{marketHashName}:
+    delete:
+      tags: [watchlist]
+      summary: 移除自选（US-03）
+      parameters:
+        - { name: marketHashName, in: path, required: true, schema: { type: string, maxLength: 256 } }
+      responses:
+        '204': { description: 已移除 }
+        '404': { $ref: '#/components/responses/Error' }
+  /alerts:
+    get:
+      tags: [alerts]
+      summary: 提醒列表（US-04）
+      responses:
+        '200':
+          description: 提醒列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Alert' }
+    post:
+      tags: [alerts]
+      summary: 创建提醒（US-04）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlertUpsert' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Alert' }
+        '400': { $ref: '#/components/responses/Error' }
+  /alerts/{alertId}:
+    put:
+      tags: [alerts]
+      summary: 更新提醒（启停/阈值，US-04）
+      parameters:
+        - { name: alertId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlertUpsert' }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Alert' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [alerts]
+      summary: 删除提醒（US-04）
+      parameters:
+        - { name: alertId, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: 已删除 }
+        '404': { $ref: '#/components/responses/Error' }
+  /portfolio/items:
+    get:
+      tags: [portfolio]
+      summary: 持仓明细（US-05）
+      responses:
+        '200':
+          description: 持仓列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PortfolioItem' }
+    post:
+      tags: [portfolio]
+      summary: 添加持仓（US-05）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PortfolioItemUpsert' }
+      responses:
+        '201':
+          description: 已添加
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioItem' }
+        '400': { $ref: '#/components/responses/Error' }
+  /portfolio/items/{itemId}:
+    put:
+      tags: [portfolio]
+      summary: 修改持仓（US-05）
+      parameters:
+        - { name: itemId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PortfolioItemUpsert' }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioItem' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [portfolio]
+      summary: 删除持仓（US-05）
+      parameters:
+        - { name: itemId, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: 已删除 }
+        '404': { $ref: '#/components/responses/Error' }
+  /portfolio/summary:
+    get:
+      tags: [portfolio]
+      summary: 持仓汇总（US-05）
+      parameters:
+        - name: currency
+          in: query
+          schema: { $ref: '#/components/schemas/Currency' }
+      responses:
+        '200':
+          description: 汇总
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioSummary' }
+  /price-sources/items/{marketHashName}:
+    get:
+      tags: [price-sources]
+      summary: 各平台比价（US-06）
+      parameters:
+        - { name: marketHashName, in: path, required: true, schema: { type: string, maxLength: 256 } }
+        - name: platforms
+          in: query
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/Platform' }
+            default: [buff, c5, youpin]
+      responses:
+        '200':
+          description: 平台价格列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PlatformPrice' }
+  /price-sources/import-csv:
+    post:
+      tags: [price-sources]
+      summary: 导入 CSV 价格数据（US-06 兜底）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                platform:
+                  schema: { type: string, default: csv }
+      responses:
+        '201': { description: 导入完成，返回导入行数 }
+  /settings:
+    get:
+      tags: [settings]
+      summary: 读取设置（US-08）
+      responses:
+        '200':
+          description: 设置项
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+    put:
+      tags: [settings]
+      summary: 保存设置（US-08）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Settings' }
+      responses:
+        '200':
+          description: 已保存
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+        '400': { $ref: '#/components/responses/Error' }
+  /health:
+    get:
+      tags: [settings]
+      summary: 健康检查（网络与数据库状态，US-07）
+      responses:
+        '200':
+          description: 状态
+          content:
+            application/json:
+              schema:
+                type: object
+              properties:
+                  status: { type: string, enum: [ok, degraded] }
+                  lastSyncAt: { type: string, format: date-time, nullable: true }
+                  offline: { type: boolean }
+  /market/items/{marketHashName}/orderbook:
+    get:
+      tags: [market]
+      summary: 买卖盘口（V2-F3/US-12）
+      parameters:
+        - { name: marketHashName, in: path, required: true, schema: { type: string, maxLength: 256 } }
+      responses:
+        '200':
+          description: 盘口数据
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Orderbook' }
+        '502': { $ref: '#/components/responses/Error' }
+  /market/items/{marketHashName}/kline:
+    get:
+      tags: [market]
+      summary: 日 K 线（V2-F2/US-11）
+      parameters:
+        - { name: marketHashName, in: path, required: true, schema: { type: string, maxLength: 256 } }
+        - name: maxDays
+          in: query
+          schema: { type: integer, default: 365 }
+        - name: mas
+          in: query
+          schema: { type: array, items: { type: integer }, default: [5, 10, 20] }
+      responses:
+        '200':
+          description: K 线数组
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bars]
+                properties:
+                  bars:
+                    type: array
+                    items: { $ref: '#/components/schemas/KlineBar' }
+  /market/items/{marketHashName}/stats:
+    get:
+      tags: [market]
+      summary: 数据维度统计（V2-F5/US-14）
+      parameters:
+        - { name: marketHashName, in: path, required: true, schema: { type: string, maxLength: 256 } }
+      responses:
+        '200':
+          description: 销量/成交额/区间统计
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ItemStats' }
+  /market/top:
+    get:
+      tags: [market]
+      summary: 排行榜（V2-F4/US-13）
+      parameters:
+        - name: by
+          in: query
+          required: true
+          schema: { type: string, enum: [volume, gain, loss] }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Top N
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TopItem' }
+  /market/fee:
+    get:
+      tags: [market]
+      summary: 费用计算（V2-F7/US-16）
+      parameters:
+        - name: price
+          in: query
+          required: true
+          schema: { type: number, minimum: 0.01 }
+        - name: direction
+          in: query
+          required: true
+          schema: { type: string, enum: [buy, sell] }
+      responses:
+        '200':
+          description: 费用明细
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeeEstimate' }
+  /rules:
+    get:
+      tags: [settings]
+      summary: Steam 交易规则库（V2-F6/US-15）
+      responses:
+        '200':
+          description: 规则条目
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TradingRule' }
+  /trades:
+    get:
+      tags: [portfolio]
+      summary: 模拟交易记录（V2-F8/US-17）
+      responses:
+        '200':
+          description: 交易记录
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TradeRecord' }
+    post:
+      tags: [portfolio]
+      summary: 记录模拟交易（V2-F8/US-17）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TradeRecordUpsert' }
+      responses:
+        '201':
+          description: 已记录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TradeRecord' }
+        '400': { $ref: '#/components/responses/Error' }
+  /trades/{tradeId}:
+    delete:
+      tags: [portfolio]
+      summary: 删除模拟交易（V2-F8）
+      parameters:
+        - { name: tradeId, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: 已删除 }
+        '404': { $ref: '#/components/responses/Error' }
+  /auth/status:
+    get:
+      tags: [settings]
+      summary: 登录会话状态（V3-F4/US-19）
+      responses:
+        '200':
+          description: 会话状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  loggedIn: { type: boolean }
+                  accountName: { type: string, nullable: true }
+                  walletBalance: { type: number, nullable: true }
+  /auth/login:
+    post:
+      tags: [settings]
+      summary: Steam 登录（V3-F4/US-19）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200': { description: 需要 Steam Guard 验证码（返回 guardRequired） }
+        '201': { description: 登录成功 }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/guard:
+    post:
+      tags: [settings]
+      summary: 提交 Steam Guard 验证码（V3-F4）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        '200': { description: 登录成功 }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    delete:
+      tags: [settings]
+      summary: 退出登录并清除会话（V3-F4）
+      responses:
+        '204': { description: 已登出 }
+  /trading/rules:
+    get:
+      tags: [trading]
+      summary: 自动化交易规则列表（V3-F5/US-20）
+      responses:
+        '200':
+          description: 规则列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TradingRuleConfig' }
+    post:
+      tags: [trading]
+      summary: 新建规则（V3-F5）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TradingRuleConfig' }
+      responses:
+        '201': { description: 已创建 }
+        '400': { $ref: '#/components/responses/Error' }
+  /trading/rules/{ruleId}:
+    put:
+      tags: [trading]
+      summary: 更新/启停规则（V3-F5）
+      parameters:
+        - { name: ruleId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TradingRuleConfig' }
+      responses:
+        '200': { description: 已更新 }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [trading]
+      summary: 删除规则
+      parameters:
+        - { name: ruleId, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: 已删除 }
+  /trading/orders:
+    get:
+      tags: [trading]
+      summary: 订单记录（V3-F6/US-21）
+      responses:
+        '200':
+          description: 订单列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/OrderRecord' }
+  /trading/orders/{orderId}/cancel:
+    post:
+      tags: [trading]
+      summary: 取消订单（V3-F6）
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: 已请求取消 }
+        '404': { $ref: '#/components/responses/Error' }
+  /trading/stop:
+    post:
+      tags: [trading]
+      summary: 紧急停止（V3-F7/US-22）
+      responses:
+        '204': { description: 已停止检查与下单 }
+components:
+  schemas:
+    Currency:
+      type: string
+      enum: [CNY, USD, EUR, RUB]
+      default: CNY
+    MarketItem:
+      type: object
+      required: [marketHashName, appid, name]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer }
+        name: { type: string, maxLength: 256 }
+        iconUrl: { type: string, format: uri, nullable: true }
+        price: { type: number, nullable: true }
+        volume: { type: integer, nullable: true }
+        currency: { $ref: '#/components/schemas/Currency' }
+    PriceOverview:
+      type: object
+      required: [marketHashName, currency]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        currency: { $ref: '#/components/schemas/Currency' }
+        priceLow: { type: number, nullable: true }
+        priceHigh: { type: number, nullable: true }
+        volume: { type: integer, nullable: true }
+        updatedAt: { type: string, format: date-time }
+        stale: { type: boolean, description: true 表示来自缓存降级 }
+    PricePoint:
+      type: object
+      required: [recordedAt, price]
+      properties:
+        recordedAt: { type: string, format: date-time }
+        price: { type: number }
+        volume: { type: integer, nullable: true }
+    HistoryResponse:
+      type: object
+      required: [marketHashName, points, stale]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        points:
+          type: array
+          items: { $ref: '#/components/schemas/PricePoint' }
+        stale: { type: boolean }
+    WatchlistItem:
+      type: object
+      required: [marketHashName, appid, addedAt]
+      properties:
+        id: { type: integer }
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer }
+        addedAt: { type: string, format: date-time }
+        note: { type: string, maxLength: 200, nullable: true }
+        sortOrder: { type: integer, default: 0 }
+        latestPrice: { type: number, nullable: true }
+        changePercent24h: { type: number, nullable: true }
+        volume: { type: integer, nullable: true }
+        lastError: { type: string, nullable: true, description: 最近一次刷新失败原因 }
+    WatchlistUpsert:
+      type: object
+      required: [marketHashName, appid]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer }
+        note: { type: string, maxLength: 200, nullable: true }
+    AlertType:
+      type: string
+      enum: [below, above, percent_24h]
+    Alert:
+      type: object
+      required: [id, marketHashName, conditionType, enabled]
+      properties:
+        id: { type: integer }
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer }
+        conditionType: { $ref: '#/components/schemas/AlertType' }
+        thresholdValue: { type: number, nullable: true, description: below/above 的价格阈值（>0） }
+        percentValue: { type: number, nullable: true, description: percent_24h 的涨跌幅阈值（>0） }
+        enabled: { type: boolean, default: true }
+        lastTriggeredAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+    AlertUpsert:
+      type: object
+      required: [marketHashName, conditionType]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer }
+        conditionType: { $ref: '#/components/schemas/AlertType' }
+        thresholdValue: { type: number, nullable: true }
+        percentValue: { type: number, nullable: true }
+        enabled: { type: boolean, default: true }
+    PortfolioItem:
+      type: object
+      required: [id, marketHashName, quantity]
+      properties:
+        id: { type: integer }
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer }
+        quantity: { type: integer, minimum: 1 }
+        purchasePrice: { type: number, nullable: true }
+        purchaseCurrency: { $ref: '#/components/schemas/Currency' }
+        purchaseDate: { type: string, format: date, nullable: true }
+        note: { type: string, maxLength: 200, nullable: true }
+        latestPrice: { type: number, nullable: true }
+        marketValue: { type: number, nullable: true, description: quantity × latestPrice }
+        profitLoss: { type: number, nullable: true }
+        profitLossPercent: { type: number, nullable: true }
+    PortfolioItemUpsert:
+      type: object
+      required: [marketHashName, quantity]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer }
+        quantity: { type: integer, minimum: 1 }
+        purchasePrice: { type: number, nullable: true }
+        purchaseCurrency: { $ref: '#/components/schemas/Currency' }
+        purchaseDate: { type: string, format: date, nullable: true }
+        note: { type: string, maxLength: 200, nullable: true }
+    PortfolioSummary:
+      type: object
+      required: [currency]
+      properties:
+        currency: { $ref: '#/components/schemas/Currency' }
+        totalMarketValue: { type: number }
+        totalCost: { type: number }
+        totalProfitLoss: { type: number }
+        totalProfitLossPercent: { type: number, nullable: true }
+        itemCount: { type: integer }
+        missingPriceCount: { type: integer, description: 无市价被排除的行数 }
+    Platform:
+      type: string
+      enum: [steam, buff, c5, youpin, csv]
+    PlatformPrice:
+      type: object
+      required: [platform, marketHashName, updatedAt]
+      properties:
+        platform: { $ref: '#/components/schemas/Platform' }
+        marketHashName: { type: string, maxLength: 256 }
+        price: { type: number, nullable: true }
+        currency: { $ref: '#/components/schemas/Currency' }
+        url: { type: string, nullable: true }
+        updatedAt: { type: string, format: date-time }
+    Settings:
+      type: object
+      properties:
+        currency: { $ref: '#/components/schemas/Currency' }
+        refreshIntervalMinutes: { type: integer, minimum: 1, maximum: 1440, default: 10 }
+        colorScheme: { type: string, enum: [red_up_green_down, green_up_red_down], default: red_up_green_down }
+        notificationsEnabled: { type: boolean, default: true }
+        trayOnClose: { type: boolean, default: true }
+        requestIntervalMs: { type: integer, minimum: 500, maximum: 10000, default: 1500 }
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_ARGUMENT, NOT_FOUND, CONFLICT, NETWORK_ERROR, RATE_LIMITED, DATA_SOURCE_UNAVAILABLE, INTERNAL]
+        message: { type: string }
+        details: { type: string, nullable: true }
+    OrderbookEntry:
+      type: object
+      required: [price, count]
+      properties:
+        price: { type: number }
+        count: { type: integer }
+    Orderbook:
+      type: object
+      required: [marketHashName, fetchedAt]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        buyOrders:
+          type: array
+          items: { $ref: '#/components/schemas/OrderbookEntry' }
+        sellOrders:
+          type: array
+          items: { $ref: '#/components/schemas/OrderbookEntry' }
+        highestBuy: { type: number, nullable: true }
+        lowestSell: { type: number, nullable: true }
+        fetchedAt: { type: string, format: date-time }
+        stale: { type: boolean }
+    KlineBar:
+      type: object
+      required: [date, open, high, low, close]
+      properties:
+        date: { type: string, format: date }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        close: { type: number }
+        volume: { type: integer }
+        amount: { type: number, description: 当日成交额（约 price×volume） }
+        ma5: { type: number, nullable: true }
+        ma10: { type: number, nullable: true }
+        ma20: { type: number, nullable: true }
+    ItemStats:
+      type: object
+      required: [marketHashName]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        volume7d: { type: integer, description: 近 7 天销量合计 }
+        amount7d: { type: number, description: 近 7 天成交额 }
+        high7d: { type: number }
+        low7d: { type: number }
+        high90d: { type: number }
+        low90d: { type: number }
+    TopItem:
+      type: object
+      required: [marketHashName, value]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        name: { type: string }
+        price: { type: number, nullable: true }
+        value: { type: number, description: 指标值（销量/涨跌幅%） }
+        rank: { type: integer }
+    TradingRule:
+      type: object
+      required: [id, category, title, content]
+      properties:
+        id: { type: string }
+        category: { type: string, enum: [fee, protection, wallet, buy_order, listing, restriction, other] }
+        title: { type: string }
+        content: { type: string }
+        source: { type: string }
+        updatedAt: { type: string, format: date }
+    FeeEstimate:
+      type: object
+      required: [direction, inputPrice]
+      properties:
+        direction: { type: string, enum: [buy, sell] }
+        inputPrice: { type: number }
+        steamFee: { type: number }
+        gameFee: { type: number }
+        totalFee: { type: number }
+        sellerReceives: { type: number }
+        buyerPays: { type: number }
+        currency: { $ref: '#/components/schemas/Currency' }
+    TradeRecord:
+      type: object
+      required: [id, marketHashName, side, quantity, price]
+      properties:
+        id: { type: integer }
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer }
+        side: { type: string, enum: [buy, sell] }
+        quantity: { type: integer, minimum: 1 }
+        price: { type: number }
+        fee: { type: number }
+        total: { type: number }
+        tradedAt: { type: string, format: date-time }
+        note: { type: string, maxLength: 200, nullable: true }
+    TradeRecordUpsert:
+      type: object
+      required: [marketHashName, side, quantity, price]
+      properties:
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer, default: 730 }
+        side: { type: string, enum: [buy, sell] }
+        quantity: { type: integer, minimum: 1 }
+        price: { type: number, minimum: 0.01 }
+        note: { type: string, maxLength: 200, nullable: true }
+    TradingRuleConfig:
+      type: object
+      required: [appid, marketHashName, side, quantity]
+      properties:
+        id: { type: integer, nullable: true }
+        appid: { type: integer, enum: [730, 570, 440] }
+        marketHashName: { type: string, maxLength: 256 }
+        side: { type: string, enum: [buy, sell] }
+        priceCondition: { type: string, enum: [below, above, any] }
+        thresholdPrice: { type: number, nullable: true }
+        quantity: { type: integer, minimum: 1 }
+        budgetLimit: { type: number, nullable: true, description: 单笔预算上限 }
+        dailyLimit: { type: number, nullable: true, description: 单日支出上限 }
+        cooldownMinutes: { type: integer, default: 30 }
+        enabled: { type: boolean, default: true }
+    OrderRecord:
+      type: object
+      required: [id, marketHashName, side, quantity, status]
+      properties:
+        id: { type: integer }
+        ruleId: { type: integer, nullable: true }
+        marketHashName: { type: string, maxLength: 256 }
+        appid: { type: integer }
+        side: { type: string, enum: [buy, sell] }
+        quantity: { type: integer }
+        price: { type: number }
+        fee: { type: number }
+        status: { type: string, enum: [pending, submitted, success, failed, cancelled] }
+        error: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+  responses:
+    Error:
+      description: 错误响应（统一错误码）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

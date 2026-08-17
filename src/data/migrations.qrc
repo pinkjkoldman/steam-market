@@ -1,0 +1,10 @@
+<RCC>
+    <qresource prefix="/migrations">
+        <file>migrations/0001_init.sql</file>
+        <file>migrations/0002_v2.sql</file>
+        <file>migrations/0003_v3.sql</file>
+        <file>migrations/0004_v3_autotrade.sql</file>
+        <file>migrations/0005_v4_inventory_assistant.sql</file>
+        <file>migrations/0006_cr004_market_catalog.sql</file>
+    </qresource>
+</RCC>

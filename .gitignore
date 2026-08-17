@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment
+.env
+.env.local
+
+# Build
+dist/
+build/
+bin/
+release/
+.next/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# qmake
+.qmake.stash
+Makefile
+Makefile.Debug
+Makefile.Release
+*.pro.user
+*.autosave
+
+# Test
+.coverage
+htmlcov/
+.pytest_cache/
+smoke.png

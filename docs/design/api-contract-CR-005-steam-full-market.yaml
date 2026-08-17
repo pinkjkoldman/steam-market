@@ -1,0 +1,124 @@
+openapi: 3.0.3
+info:
+  title: Steam Market Terminal Full Market Internal Contract
+  version: 0.1.0-g2
+  description: >-
+    Internal application contract for Steam Community Market catalog browsing.
+    It does not claim Valve API support and is implemented by a Qt service adapter.
+paths:
+  /internal/market/catalog:
+    get:
+      operationId: getMarketCatalogPage
+      summary: Read one Steam market catalog page
+      parameters:
+        - in: query
+          name: query
+          schema: { type: string, maxLength: 128, default: "" }
+        - in: query
+          name: appid
+          schema: { type: integer, minimum: 1, nullable: true }
+        - in: query
+          name: offset
+          required: true
+          schema: { type: integer, minimum: 0, default: 0 }
+        - in: query
+          name: limit
+          required: true
+          description: Requested page size; adapter must trust Steam response pagesize.
+          schema: { type: integer, minimum: 1, maximum: 10, default: 10 }
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [popular, price_asc, price_desc, name_asc]
+            default: popular
+        - in: query
+          name: currency
+          schema: { type: string, enum: [CNY, USD], default: CNY }
+        - in: query
+          name: language
+          schema: { type: string, enum: [schinese, english], default: schinese }
+      responses:
+        "200":
+          description: Live or cached Steam market page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketCatalogPage" }
+        "429":
+          description: Steam rate limited; no automatic pagination is allowed
+          headers:
+            Retry-After:
+              schema: { type: integer, minimum: 0 }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketError" }
+        "502":
+          description: Steam response unavailable or schema changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketError" }
+  /internal/market/scopes:
+    get:
+      operationId: getMarketScopeSummary
+      summary: Read full-market and selected app result counts
+      responses:
+        "200":
+          description: Scope count snapshots
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MarketScopeSnapshot" }
+components:
+  schemas:
+    MarketCatalogPage:
+      type: object
+      required: [offset, pageSize, totalCount, items, fetchedAt, origin, sourceLabel]
+      properties:
+        offset: { type: integer, minimum: 0 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        totalCount: { type: integer, format: int64, minimum: 0 }
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/MarketCatalogItem" }
+        fetchedAt: { type: string, format: date-time }
+        origin: { type: string, enum: [steam_live, steam_cached] }
+        stale: { type: boolean, default: false }
+        sourceLabel:
+          type: string
+          enum: [steam_community_market_public_page]
+    MarketCatalogItem:
+      type: object
+      required: [appid, marketHashName, name, lowestSellMinor, sellListings]
+      properties:
+        appid: { type: integer, minimum: 1 }
+        marketHashName: { type: string, minLength: 1, maxLength: 512 }
+        name: { type: string, minLength: 1, maxLength: 512 }
+        typeText: { type: string, maxLength: 256 }
+        iconUrl: { type: string, maxLength: 2048 }
+        lowestSellMinor: { type: integer, format: int64, minimum: 0 }
+        sellListings: { type: integer, format: int64, minimum: 0 }
+    MarketScopeSnapshot:
+      type: object
+      required: [scopeKey, totalCount, fetchedAt, origin]
+      properties:
+        scopeKey: { type: string, pattern: "^(all|appid:[1-9][0-9]*)$" }
+        totalCount: { type: integer, format: int64, minimum: 0 }
+        fetchedAt: { type: string, format: date-time }
+        origin: { type: string, enum: [steam_live, steam_cached] }
+    MarketError:
+      type: object
+      required: [code, messageKey, recoverable]
+      properties:
+        code:
+          type: string
+          enum:
+            - MARKET_RATE_LIMITED
+            - MARKET_SCHEMA_CHANGED
+            - MARKET_PAGE_OUT_OF_RANGE
+            - MARKET_OFFLINE_NO_CACHE
+            - MARKET_CURRENCY_UNSUPPORTED
+        messageKey: { type: string }
+        recoverable: { type: boolean }
+        retryAfterMs: { type: integer, format: int64, minimum: 0, nullable: true }
