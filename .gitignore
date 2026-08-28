@@ -15,6 +15,10 @@ build/
 bin/
 release/
 .next/
+src/debug/
+src/release/
+tests/debug/
+tests/release/
 
 # IDE
 .idea/
@@ -32,9 +36,16 @@ Makefile.Debug
 Makefile.Release
 *.pro.user
 *.autosave
+src/SteamMarketTerminal_resource.rc
 
 # Test
 .coverage
 htmlcov/
 .pytest_cache/
 smoke.png
+smoke-test.png
+gdb-output.txt
+runtime-verification.png
+
+# 本地生成的冒烟截图不入库（测试报告引用的固定样张除外）
+docs/test/smoke-*.png

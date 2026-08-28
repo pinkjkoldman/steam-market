@@ -3,18 +3,21 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPair>
 #include <QPushButton>
 #include <QTextBrowser>
+#include <QTextCursor>
 #include <QVBoxLayout>
 
 #include "core/services/TradingRulesService.h"
 
 RulesPage::RulesPage(TradingRulesService *service, QWidget *parent)
     : QWidget(parent), m_service(service) {
+    setMinimumHeight(650);
     m_category = new QComboBox(this);
     m_category->addItem(QStringLiteral("全部"));
     const QStringList categories = m_service->categories();
@@ -39,11 +42,15 @@ RulesPage::RulesPage(TradingRulesService *service, QWidget *parent)
 
     auto *ruleGroup = new QGroupBox(QStringLiteral("Steam 市场交易规则"), this);
     auto *ruleLayout = new QVBoxLayout(ruleGroup);
+    ruleLayout->setContentsMargins(12, 18, 12, 12);
+    ruleLayout->setSpacing(10);
     ruleLayout->addWidget(m_category);
     ruleLayout->addWidget(m_browser, 1);
 
     auto *calcGroup = new QGroupBox(QStringLiteral("费用计算器（CS2 默认费率 Steam 5% + 游戏 10%）"), this);
     auto *form = new QFormLayout(calcGroup);
+    form->setContentsMargins(12, 18, 12, 12);
+    form->setVerticalSpacing(10);
     m_direction = new QComboBox(calcGroup);
     m_direction->addItems({QStringLiteral("卖出（输入卖家到手价）"),
                            QStringLiteral("买入（输入买家支付价）")});
@@ -59,10 +66,19 @@ RulesPage::RulesPage(TradingRulesService *service, QWidget *parent)
     form->addRow(calcBtn);
     form->addRow(m_result);
 
+    auto *card = new QFrame(this);
+    card->setObjectName(QStringLiteral("pageCard"));
+    auto *cardLayout = new QVBoxLayout(card);
+    cardLayout->setContentsMargins(16, 16, 16, 16);
+    cardLayout->setSpacing(14);
+    cardLayout->addWidget(ruleGroup, 2);
+    cardLayout->addWidget(calcGroup, 1);
+    cardLayout->addWidget(hint);
+
     auto *layout = new QVBoxLayout(this);
-    layout->addWidget(ruleGroup, 2);
-    layout->addWidget(calcGroup, 1);
-    layout->addWidget(hint);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(card, 1);
 
     connect(m_category, qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this](int) { reloadRules(); });
@@ -87,6 +103,8 @@ void RulesPage::reloadRules() {
     if (rules.isEmpty()) {
         m_browser->setPlainText(QStringLiteral("该分类暂无规则条目"));
     }
+    m_browser->moveCursor(QTextCursor::Start);
+    m_browser->ensureCursorVisible();
 }
 
 void RulesPage::calculate() {

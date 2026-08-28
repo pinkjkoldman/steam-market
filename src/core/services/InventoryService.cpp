@@ -8,7 +8,7 @@
 
 namespace {
 constexpr int kMaxPages = 50;
-constexpr int kPageIntervalMs = 2000;
+constexpr int kPageIntervalMs = 4000;
 }
 
 InventoryService::InventoryService(InventoryRepository *repository,
@@ -17,7 +17,8 @@ InventoryService::InventoryService(InventoryRepository *repository,
 
 QVector<InventoryGroup> InventoryService::groups(const QString &steamId, int appid,
                                                  const QString &contextId) const {
-    return m_repository->groups(steamId, appid, contextId);
+    // 库存页需要同时展示不可交易/不可出售物品，选择与交接权限由表格状态约束。
+    return m_repository->groups(steamId, appid, contextId, false);
 }
 
 void InventoryService::sync(const QString &steamId, int appid, const QString &contextId) {

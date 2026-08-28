@@ -8,14 +8,14 @@
 #include <QNetworkCookieJar>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QLocale>
-#include <QRegularExpression>
 #include <QQueue>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QtDebug>
 
+#include "network/SteamHistoryParser.h"
+#include "network/SteamOrderbookParser.h"
 #include "utils/Currency.h"
 
 namespace {
@@ -58,24 +58,6 @@ int parseVolumeText(const QString &text) {
     return ok ? v : 0;
 }
 
-// Steam pricehistory 日期形如 "Aug 01 2026 01: +0"（英文月份 + 时区后缀）。
-// 使用显式英文区域解析并做多格式回退，避免系统中文区域解析失败导致历史数据为空。
-QDateTime parseHistoryDate(const QString &text) {
-    const QLocale en(QLocale::English, QLocale::UnitedStates);
-    QString t = text.trimmed();
-    t.remove(QRegularExpression(QStringLiteral("\\s+[+-]\\d+$")));
-    if (t.endsWith(QLatin1Char(':'))) {
-        t.append(QStringLiteral("00"));
-    }
-    QDateTime dt = en.toDateTime(t, QStringLiteral("MMM dd yyyy HH:mm"));
-    if (!dt.isValid()) {
-        dt = en.toDateTime(t, QStringLiteral("MMM d yyyy HH:mm"));
-    }
-    if (!dt.isValid()) {
-        dt = QDateTime::fromString(t, Qt::ISODate);
-    }
-    return dt;
-}
 }  // namespace
 
 SteamMarketClient::SteamMarketClient(QNetworkAccessManager *nam, QObject *parent)
@@ -91,11 +73,13 @@ void SteamMarketClient::setRequestIntervalMs(qint64 ms) {
     m_limiter.setMinIntervalMs(ms);
 }
 
-void SteamMarketClient::search(const QString &query, int appid, SearchCallback callback) {
+void SteamMarketClient::search(const QString &query, int appid, SearchCallback callback,
+                               int start) {
     PendingRequest req;
     req.kind = PendingRequest::Kind::kSearch;
     req.query = query;
     req.appid = appid;
+    req.start = qMax(0, start);
     req.searchCb = std::move(callback);
     enqueue(std::move(req));
 }
@@ -162,6 +146,9 @@ void SteamMarketClient::dispatchNext() {
         q.addQueryItem(QStringLiteral("appid"), QString::number(req.appid));
         q.addQueryItem(QStringLiteral("norender"), QStringLiteral("1"));
         q.addQueryItem(QStringLiteral("count"), QStringLiteral("30"));
+        if (req.start > 0) {
+            q.addQueryItem(QStringLiteral("start"), QString::number(req.start));
+        }
     } else if (req.kind == PendingRequest::Kind::kOverview) {
         url.setPath(QStringLiteral("/market/priceoverview/"));
         q.addQueryItem(QStringLiteral("appid"), QString::number(req.appid));
@@ -173,12 +160,17 @@ void SteamMarketClient::dispatchNext() {
         q.addQueryItem(QStringLiteral("currency"), QString::number(Currency::steamId(m_currency)));
         q.addQueryItem(QStringLiteral("market_hash_name"), req.marketHashName);
     } else {
-        url.setPath(QStringLiteral("/market/itemordershistogram/"));
-        q.addQueryItem(QStringLiteral("country"), QStringLiteral("CN"));
-        q.addQueryItem(QStringLiteral("language"), QStringLiteral("schinese"));
-        q.addQueryItem(QStringLiteral("currency"), QString::number(Currency::steamId(m_currency)));
-        q.addQueryItem(QStringLiteral("appid"), QString::number(req.appid));
-        q.addQueryItem(QStringLiteral("market_hash_name"), req.marketHashName);
+        // Steam 2026 新版市场已将盘口迁移到 queryAction 协议；
+        // 旧 itemordershistogram 不再接受 appid + market_hash_name。
+        url.setPath(QStringLiteral("/market/orderbook"));
+        q.addQueryItem(QStringLiteral("q"), QStringLiteral("Load"));
+        QJsonArray parameters;
+        parameters.append(req.appid);
+        parameters.append(req.marketHashName);
+        q.addQueryItem(QStringLiteral("qp"),
+                       QString::fromUtf8(QJsonDocument(parameters).toJson(
+                           QJsonDocument::Compact)));
+        request.setRawHeader("x-valve-request-type", "queryAction");
     }
     url.setQuery(q);
     request.setUrl(url);
@@ -194,25 +186,67 @@ void SteamMarketClient::handleReply(QNetworkReply *reply, PendingRequest req) {
     m_busy = false;
 
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray body = reply->readAll();
     if (reply->error() != QNetworkReply::NoError) {
-        const AppError err = (status == 429 || status == 403)
-                                 ? AppError::make(ErrorCode::kRateLimited,
-                                                  QStringLiteral("Steam 接口限流或拒绝访问，请稍后重试"))
-                                 : AppError::make(ErrorCode::kNetworkError,
-                                                  QStringLiteral("Steam 接口请求失败：%1")
-                                                      .arg(reply->errorString()));
+        AppError err;
+        if (status == 429) {
+            err = AppError::make(ErrorCode::kRateLimited,
+                                 QStringLiteral("Steam 请求过于频繁，请稍后重试"));
+        } else if (req.kind == PendingRequest::Kind::kHistory
+                   && (status == 400 || status == 401)) {
+            err = AppError::make(ErrorCode::kAuthenticationRequired,
+                                 QStringLiteral("Steam 官方历史需要有效登录会话"));
+        } else if (status == 403) {
+            err = AppError::make(ErrorCode::kRateLimited,
+                                 QStringLiteral("Steam 拒绝访问，请稍后重试"));
+        } else {
+            err = AppError::make(ErrorCode::kNetworkError,
+                                 QStringLiteral("Steam 接口请求失败：%1")
+                                     .arg(reply->errorString()));
+        }
         retryOrFail(std::move(req), err);
         return;
     }
 
+    if (req.kind == PendingRequest::Kind::kHistory) {
+        const QString contentType =
+            reply->header(QNetworkRequest::ContentTypeHeader).toString().toLower();
+        if (!contentType.isEmpty() && !contentType.contains(QStringLiteral("json"))) {
+            retryOrFail(std::move(req),
+                        AppError::make(ErrorCode::kAuthenticationRequired,
+                                       QStringLiteral("Steam 返回了登录页面，请重新登录")));
+            return;
+        }
+        const SteamHistoryParseResult parsed = SteamHistoryParser::parse(body);
+        if (!parsed.error.isOk()) {
+            retryOrFail(std::move(req), parsed.error);
+            return;
+        }
+        if (req.historyCb) req.historyCb(parsed.points, AppError::ok());
+        dispatchNext();
+        return;
+    }
+
     QJsonParseError parseErr;
-    const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll(), &parseErr);
+    const QJsonDocument doc = QJsonDocument::fromJson(body, &parseErr);
     if (parseErr.error != QJsonParseError::NoError) {
         retryOrFail(std::move(req),
                     AppError::make(ErrorCode::kInternal, QStringLiteral("Steam 响应解析失败")));
         return;
     }
     const QJsonObject root = doc.object();
+
+    if (req.kind == PendingRequest::Kind::kOrderbook) {
+        const SteamOrderbookParseResult parsed =
+            SteamOrderbookParser::parseQueryAction(body, req.marketHashName);
+        if (!parsed.error.isOk()) {
+            retryOrFail(std::move(req), parsed.error);
+            return;
+        }
+        if (req.orderbookCb) req.orderbookCb(parsed.orderbook, AppError::ok());
+        dispatchNext();
+        return;
+    }
 
     if (req.kind == PendingRequest::Kind::kSearch) {
         QVector<MarketItem> items;
@@ -234,7 +268,9 @@ void SteamMarketClient::handleReply(QNetworkReply *reply, PendingRequest req) {
                 items.append(item);
             }
         }
-        if (req.searchCb) req.searchCb(items, AppError::ok());
+        // Steam 返回 total_count 用于分页（“加载更多”依据）。
+        const int totalCount = root.value(QStringLiteral("total_count")).toInt(items.size());
+        if (req.searchCb) req.searchCb(items, totalCount, AppError::ok());
     } else if (req.kind == PendingRequest::Kind::kOverview) {
         PriceOverview overview;
         overview.marketHashName = req.marketHashName;
@@ -246,51 +282,13 @@ void SteamMarketClient::handleReply(QNetworkReply *reply, PendingRequest req) {
             overview.volume = root.value(QStringLiteral("volume")).toString().toInt();
         }
         if (req.overviewCb) req.overviewCb(overview, AppError::ok());
-    } else if (req.kind == PendingRequest::Kind::kHistory) {
-        QVector<PricePoint> points;
-        const QJsonArray prices = root.value(QStringLiteral("prices")).toArray();
-        for (const QJsonValue &v : prices) {
-            const QJsonArray row = v.toArray();
-            if (row.size() < 2) continue;
-            PricePoint p;
-            p.recordedAt = parseHistoryDate(row.at(0).toString());
-            p.price = row.at(1).toDouble();
-            p.volume = row.size() > 2 ? row.at(2).toInt() : 0;
-            if (p.recordedAt.isValid()) {
-                points.append(p);
-            }
-        }
-        if (req.historyCb) req.historyCb(points, AppError::ok());
-    } else {
-        Orderbook orderbook;
-        orderbook.marketHashName = req.marketHashName;
-        orderbook.fetchedAt = QDateTime::currentDateTimeUtc();
-        if (root.value(QStringLiteral("success")).toBool(false)) {
-            const auto parseGraph = [](const QJsonValue &v, QVector<OrderbookEntry> *out) {
-                const QJsonArray arr = v.toArray();
-                for (const QJsonValue &row : arr) {
-                    const QJsonArray pair = row.toArray();
-                    if (pair.size() < 2) continue;
-                    OrderbookEntry e;
-                    e.price = pair.at(0).toDouble();
-                    e.count = pair.at(1).toInt();
-                    if (e.price > 0) out->append(e);
-                }
-            };
-            parseGraph(root.value(QStringLiteral("buy_order_graph")), &orderbook.buyOrders);
-            parseGraph(root.value(QStringLiteral("sell_order_graph")), &orderbook.sellOrders);
-            orderbook.highestBuy =
-                root.value(QStringLiteral("highest_buy_order")).toString().toDouble();
-            orderbook.lowestSell =
-                root.value(QStringLiteral("lowest_sell_order")).toString().toDouble();
-        }
-        if (req.orderbookCb) req.orderbookCb(orderbook, AppError::ok());
     }
     dispatchNext();
 }
 
 void SteamMarketClient::retryOrFail(PendingRequest req, const AppError &err) {
-    if (++req.attempt <= kMaxAttempts) {
+    const bool retryable = err.code == ErrorCode::kNetworkError;
+    if (retryable && ++req.attempt <= kMaxAttempts) {
         const int delayMs = 500 * req.attempt;
         QTimer::singleShot(delayMs, this, [this, req]() {
             m_queue.prepend(req);
@@ -299,7 +297,7 @@ void SteamMarketClient::retryOrFail(PendingRequest req, const AppError &err) {
         return;
     }
     if (req.kind == PendingRequest::Kind::kSearch && req.searchCb) {
-        req.searchCb({}, err);
+        req.searchCb({}, -1, err);
     } else if (req.kind == PendingRequest::Kind::kOverview && req.overviewCb) {
         req.overviewCb({}, err);
     } else if (req.kind == PendingRequest::Kind::kHistory && req.historyCb) {

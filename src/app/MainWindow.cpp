@@ -1,5 +1,7 @@
 #include "app/MainWindow.h"
 
+#include "utils/AppInfo.h"
+
 #include <QCloseEvent>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -7,6 +9,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QScrollArea>
 #include <QShortcut>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -25,6 +28,21 @@
 #include "ui/pages/WelcomePage.h"
 #include "ui/widgets/AccountCard.h"
 
+namespace {
+QScrollArea *scrollingPage(QWidget *page, QWidget *parent) {
+    auto *scroll = new QScrollArea(parent);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll->setStyleSheet(QStringLiteral(
+        "QScrollArea { background: transparent; border: none; }"
+        "QScrollArea > QWidget > QWidget { background: transparent; }"));
+    scroll->setWidget(page);
+    return scroll;
+}
+}  // namespace
+
 MainWindow::MainWindow(WelcomePage *welcomePage, MarketOverviewPage *overviewPage,
                        MarketBrowserPage *browserPage, AccountCard *accountCard,
                        MarketPage *marketPage, DetailPage *detailPage,
@@ -33,12 +51,14 @@ MainWindow::MainWindow(WelcomePage *welcomePage, MarketOverviewPage *overviewPag
                        InventoryAssistantPage *inventoryPage, SettingsPage *settingsPage,
                        QWidget *parent)
     : QMainWindow(parent), m_detail(detailPage), m_browser(browserPage) {
-    setWindowTitle(QStringLiteral("Steam 市场工作台"));
+    setWindowTitle(QStringLiteral("Steam 行情终端 v" APP_VERSION));
     resize(1280, 800);
     setMinimumSize(1040, 680);
     setStyleSheet(QStringLiteral(
         "QMainWindow, QWidget#appRoot, QWidget#contentRoot { background:#0D1117; color:#E6EDF3; }"
-        "QWidget { font-size:13px; }"
+        "QWidget { font-size:13px; color:#DCE5F0; }"
+        "QLabel,QCheckBox,QRadioButton { color:#B8C8DB; }"
+        "QLabel#inlineStatus { color:#8B98AA; }"
         "QFrame#sidebar { background:#111821; border-right:1px solid #263241; }"
         "QLabel#brandMark { background:#3478F6; color:white; border-radius:9px; font-size:16px; font-weight:800; }"
         "QLabel#brandTitle { color:#F3F7FC; font-size:16px; font-weight:700; }"
@@ -53,13 +73,33 @@ MainWindow::MainWindow(WelcomePage *welcomePage, MarketOverviewPage *overviewPag
         "QTableView,QTableWidget { background:#121A24; alternate-background-color:#151F2B; color:#DCE5F0; border:1px solid #273344; border-radius:8px; gridline-color:#223040; selection-background-color:#204576; }"
         "QHeaderView::section { background:#172230; color:#95A6BA; border:none; border-bottom:1px solid #304055; padding:9px 8px; font-weight:700; }"
         "QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox { background:#151F2B; color:#E6EDF3; border:1px solid #34445A; border-radius:6px; padding:7px 9px; }"
+        "QComboBox QAbstractItemView { background:#151F2B; color:#E6EDF3; border:1px solid #59708D; outline:none; selection-background-color:#204576; selection-color:white; }"
+        "QComboBox QAbstractItemView::item { min-height:30px; padding:5px 9px; }"
         "QPushButton { background:#1A2635; color:#D9E4F2; border:1px solid #35465C; border-radius:6px; padding:7px 14px; font-weight:600; }"
         "QPushButton:hover { background:#22344A; border-color:#59708D; color:white; }"
         "QPushButton#primaryButton { background:#3478F6; color:white; border-color:#3478F6; }"
         "QPushButton#linkButton,QPushButton#ghostButton { background:transparent; color:#7EB0FF; border-color:transparent; }"
         "QStatusBar { background:#111821; color:#8C99AA; border-top:1px solid #263241; font-size:11px; }"
         "QLabel#connectionPill { background:#142B24; color:#7FD5AD; border:1px solid #275440; border-radius:9px; padding:2px 8px; }"
-        "QGroupBox,QTextBrowser { background:#111923; color:#DCE5F0; border:1px solid #29384B; border-radius:8px; }"));
+        "QGroupBox { background:#111923; color:#DCE5F0; border:1px solid #29384B; border-radius:8px; margin-top:14px; padding-top:8px; }"
+        "QGroupBox::title { subcontrol-origin:margin; subcontrol-position:top left; left:10px; padding:0 6px; color:#DCE5F0; background:#0D1117; }"
+        "QTextBrowser { background:#111923; color:#DCE5F0; border:1px solid #29384B; border-radius:8px; }"
+        "QFrame#pageCard { background:#121A24; border:1px solid #273344; border-radius:12px; }"
+        "QLabel#emptyStateIcon { color:#4C6078; font-size:48px; font-weight:700; }"
+        "QLabel#emptyStateTitle { color:#F3F7FC; font-size:16px; font-weight:700; }"
+        "QLabel#emptyStateSubtitle { color:#8B98AA; font-size:13px; }"
+        "QProgressBar { background:#151F2B; border:1px solid #34445A; border-radius:6px; text-align:center; color:#AEBACB; }"
+        "QProgressBar::chunk { background:#3478F6; border-radius:6px; }"
+        "QScrollBar:vertical { background:#0F1720; width:10px; border-radius:5px; }"
+        "QScrollBar::handle:vertical { background:#34445A; min-height:32px; border-radius:5px; }"
+        "QScrollBar::handle:vertical:hover { background:#4C6078; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { background:transparent; height:0px; }"
+        "QScrollBar:horizontal { background:#0F1720; height:10px; border-radius:5px; }"
+        "QScrollBar::handle:horizontal { background:#34445A; min-width:32px; border-radius:5px; }"
+        "QScrollBar::handle:horizontal:hover { background:#4C6078; }"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { background:transparent; width:0px; }"
+        "QTableView::item:hover { background:#1A2A3A; }"
+        "QTableView::item:selected { background:#204576; }"));
 
     auto *sidebar = new QFrame(this);
     sidebar->setObjectName(QStringLiteral("sidebar"));
@@ -115,15 +155,15 @@ MainWindow::MainWindow(WelcomePage *welcomePage, MarketOverviewPage *overviewPag
     side->addWidget(hint);
 
     m_stack = new QStackedWidget(this);
-    m_stack->addWidget(overviewPage);
-    m_stack->addWidget(browserPage);
+    m_stack->addWidget(scrollingPage(overviewPage, m_stack));
+    m_stack->addWidget(scrollingPage(browserPage, m_stack));
     m_stack->addWidget(marketPage);
     m_stack->addWidget(watchlistPage);
     m_stack->addWidget(portfolioPage);
     m_stack->addWidget(rankingPage);
-    m_stack->addWidget(rulesPage);
-    m_stack->addWidget(inventoryPage);
-    m_stack->addWidget(settingsPage);
+    m_stack->addWidget(scrollingPage(rulesPage, m_stack));
+    m_stack->addWidget(scrollingPage(inventoryPage, m_stack));
+    m_stack->addWidget(scrollingPage(settingsPage, m_stack));
     m_stack->addWidget(detailPage);
     m_detailIndex = 9;
 
@@ -178,6 +218,8 @@ MainWindow::MainWindow(WelcomePage *welcomePage, MarketOverviewPage *overviewPag
     connect(watchlistPage, &WatchlistPage::itemSelected, this, &MainWindow::showDetail);
     connect(portfolioPage, &PortfolioPage::itemSelected, this, &MainWindow::showDetail);
     connect(rankingPage, &RankingPage::itemSelected, this, &MainWindow::showDetail);
+    connect(inventoryPage, &InventoryAssistantPage::historyRequested,
+            this, &MainWindow::showDetail);
     connect(detailPage, &DetailPage::backRequested, this,
             [this]() { activatePage(m_detailSourceIndex); });
     auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);

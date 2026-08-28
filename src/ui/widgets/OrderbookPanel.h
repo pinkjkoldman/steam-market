@@ -19,6 +19,7 @@ public slots:
 
 private:
     QLabel *m_best = nullptr;
+    QLabel *m_analysis = nullptr;
     QLabel *m_status = nullptr;
     QTableWidget *m_buyTable = nullptr;
     QTableWidget *m_sellTable = nullptr;

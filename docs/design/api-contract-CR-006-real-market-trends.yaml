@@ -1,0 +1,193 @@
+openapi: 3.0.3
+info:
+  title: Steam Market Terminal - CR-006 Real Market History Contract
+  version: 6.0.0
+  description: |
+    Qt desktop in-process contract expressed as OpenAPI. It freezes the UI-to-service
+    history result, provenance, typed errors, and refresh semantics. It is not an HTTP server.
+servers:
+  - url: internal://app
+tags:
+  - name: market-history
+paths:
+  /market/items/{appid}/{marketHashName}/history:
+    get:
+      tags: [market-history]
+      operationId: requestMarketHistory
+      summary: Load cached history and, when authorized, refresh from Steam Community Market
+      security:
+        - SteamUserSession: []
+        - {}
+      parameters:
+        - name: appid
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: marketHashName
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 256 }
+        - name: currency
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [CNY, USD, EUR, RUB]
+        - name: rangeDays
+          in: query
+          required: false
+          description: UI-only range filter. Omit for all retained points.
+          schema: { type: integer, minimum: 1, maximum: 3650 }
+        - name: forceRefresh
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Online, cache, or explicit empty dataset
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryDataset' }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/SourceError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  securitySchemes:
+    SteamUserSession:
+      type: apiKey
+      in: cookie
+      name: steamLoginSecure
+      description: |
+        Conceptual in-process capability supplied only by SteamSessionService. The UI never
+        receives or passes this cookie value. Without it, cached data may still be returned.
+  responses:
+    AuthRequired:
+      description: A user-initiated Steam session is required and no usable cache exists
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/HistoryError' }
+    RateLimited:
+      description: Steam rate limited the request and no usable cache exists
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1, maximum: 900 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/HistoryError' }
+    SourceError:
+      description: Steam rejected the request or its response no longer matches the contract
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/HistoryError' }
+    Unavailable:
+      description: Network/database unavailable and no usable cache exists
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/HistoryError' }
+  schemas:
+    HistoryKey:
+      type: object
+      additionalProperties: false
+      required: [appid, marketHashName, currency]
+      properties:
+        appid: { type: integer, minimum: 1 }
+        marketHashName: { type: string, minLength: 1, maxLength: 256 }
+        currency: { type: string, enum: [CNY, USD, EUR, RUB] }
+    HistoryPoint:
+      type: object
+      additionalProperties: false
+      required: [recordedAt, price]
+      properties:
+        recordedAt:
+          type: string
+          format: date-time
+          description: UTC ISO-8601 timestamp
+        price:
+          type: number
+          format: double
+          minimum: 0
+          exclusiveMinimum: true
+        volume:
+          type: integer
+          nullable: true
+          minimum: 0
+    HistoryProvenance:
+      type: object
+      additionalProperties: false
+      required:
+        - provider
+        - sourceKind
+        - retrievedAt
+        - pointCount
+        - stale
+        - authMode
+      properties:
+        provider:
+          type: string
+          enum: [steam_community_market, legacy_local, test_fixture]
+        sourceKind:
+          type: string
+          enum: [steam_history, legacy_unknown, smoke_fixture]
+        retrievedAt: { type: string, format: date-time, nullable: true }
+        lastAttemptAt: { type: string, format: date-time, nullable: true }
+        firstPointAt: { type: string, format: date-time, nullable: true }
+        lastPointAt: { type: string, format: date-time, nullable: true }
+        pointCount: { type: integer, minimum: 0 }
+        stale: { type: boolean }
+        authMode:
+          type: string
+          enum: [user_session, none, test_fixture]
+    HistoryQuality:
+      type: object
+      additionalProperties: false
+      required: [invalidRows, duplicateRows, gapCount, sparse]
+      properties:
+        invalidRows: { type: integer, minimum: 0 }
+        duplicateRows: { type: integer, minimum: 0 }
+        gapCount: { type: integer, minimum: 0 }
+        sparse: { type: boolean }
+    HistoryError:
+      type: object
+      additionalProperties: false
+      required: [code, userMessageKey, recoverable]
+      properties:
+        code:
+          type: string
+          enum:
+            - AUTH_REQUIRED
+            - SESSION_EXPIRED
+            - RATE_LIMITED
+            - NETWORK_UNAVAILABLE
+            - SOURCE_REJECTED
+            - SOURCE_SCHEMA_CHANGED
+            - DATABASE_ERROR
+            - CANCELLED
+        userMessageKey: { type: string, minLength: 1, maxLength: 128 }
+        recoverable: { type: boolean }
+        retryAfterSeconds:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 900
+    HistoryDataset:
+      type: object
+      additionalProperties: false
+      required: [key, state, points, provenance, quality]
+      properties:
+        key: { $ref: '#/components/schemas/HistoryKey' }
+        state:
+          type: string
+          enum: [online, cache, empty]
+        points:
+          type: array
+          maxItems: 50000
+          items: { $ref: '#/components/schemas/HistoryPoint' }
+        provenance: { $ref: '#/components/schemas/HistoryProvenance' }
+        quality: { $ref: '#/components/schemas/HistoryQuality' }
+        warning:
+          $ref: '#/components/schemas/HistoryError'
+      description: |
+        State online requires at least one point from the current validated Steam response.
+        State cache requires at least one previously stored point and may include warning.
+        State empty requires zero points and an explicitly successful empty Steam response.

@@ -17,6 +17,7 @@ class QLineEdit;
 class QPushButton;
 class QTableWidget;
 class QVBoxLayout;
+class LoadingOverlay;
 
 class InventoryAssistantPage : public QWidget {
     Q_OBJECT
@@ -26,11 +27,13 @@ public:
                            PricingDraftService *pricing,
                            MultiSellHandoffService *handoff, QWidget *parent = nullptr);
 
+signals:
+    void historyRequested(const QString &marketHashName, int appid);
+
 private:
     void buildUi();
     void buildAccountSection(QVBoxLayout *root);
     void buildInventorySection(QVBoxLayout *root);
-    void buildPricingSection(QVBoxLayout *root);
     void wireSignals();
     void onSessionChanged(bool authenticated, const QString &steamId,
                           const QString &displayName);
@@ -40,6 +43,11 @@ private:
     void applyFilter();
     void selectVisible(bool duplicatesOnly);
     void clearSelection();
+    void requestHistoryForRow(int row);
+    void openSingleListingForRow(int row);
+    void openTradeForRow(int row);
+    void updateSingleItemActions();
+    int groupIndexForRow(int row) const;
     QVector<InventoryGroup> selectedGroups() const;
     void updateSummary();
     void resetHandoff();
@@ -72,6 +80,9 @@ private:
     QPushButton *m_cancelButton = nullptr;
     QPushButton *m_openInventoryButton = nullptr;
     QPushButton *m_handoffButton = nullptr;
+    QPushButton *m_singleListingButton = nullptr;
+    QPushButton *m_tradeButton = nullptr;
+    LoadingOverlay *m_loading = nullptr;
 
     QVector<InventoryGroup> m_groups;
     QVector<HandoffBatch> m_batches;

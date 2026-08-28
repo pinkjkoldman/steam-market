@@ -1,14 +1,18 @@
 #include "app/AppController.h"
 
 #include <QApplication>
+#include <QChartView>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QEventLoop>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QNetworkAccessManager>
 #include <QNetworkCookieJar>
+#include <QNetworkProxy>
 #include <QPixmap>
+#include <QPushButton>
 #include <QSqlDatabase>
 #include <QStandardPaths>
 #include <QTimer>
@@ -63,9 +67,11 @@
 #include "ui/pages/InventoryAssistantPage.h"
 #include "ui/pages/WatchlistPage.h"
 #include "ui/widgets/AccountCard.h"
+#include "ui/widgets/PriceChart.h"
 #include "ui/widgets/WorkbenchModels.h"
 #include "utils/Currency.h"
 #include "utils/CurrencyProvider.h"
+#include "utils/ProxyConfig.h"
 #include "utils/ThemeProvider.h"
 
 namespace {
@@ -138,6 +144,14 @@ void AppController::show() {
     }
 }
 
+void AppController::bringToFront() {
+    if (!m_mainWindow) return;
+    m_mainWindow->show();
+    m_mainWindow->setWindowState(m_mainWindow->windowState() & ~Qt::WindowMinimized);
+    m_mainWindow->raise();
+    m_mainWindow->activateWindow();
+}
+
 void AppController::buildServices(QSqlDatabase &db) {
     m_items = new ItemRepository(db);
     m_catalogRepo = new MarketCatalogRepository(db);
@@ -183,8 +197,8 @@ void AppController::buildUi() {
     m_browserPage = new MarketBrowserPage();
     auto *accountCard = new AccountCard();
     auto *marketPage = new MarketPage(m_market);
-    auto *detailPage = new DetailPage(m_market, m_watchlist, m_alerts, m_sources, m_kline,
-                                      m_orderbook);
+    m_detailPage = new DetailPage(m_market, m_watchlist, m_alerts, m_sources, m_kline,
+                                  m_orderbook);
     auto *watchlistPage = new WatchlistPage(m_watchlist, m_alerts);
     auto *portfolioPage = new PortfolioPage(m_portfolio, m_trades);
     auto *rankingPage = new RankingPage(m_ranking);
@@ -193,7 +207,7 @@ void AppController::buildUi() {
         m_steamSession, m_inventoryService, m_pricingDraft, m_handoff);
     auto *settingsPage = new SettingsPage(m_settings);
     m_mainWindow = new MainWindow(m_welcomePage, m_overviewPage, m_browserPage, accountCard,
-                                  marketPage, detailPage, watchlistPage, portfolioPage,
+                                  marketPage, m_detailPage, watchlistPage, portfolioPage,
                                   rankingPage, rulesPage, inventoryPage, settingsPage);
     m_tray = new TrayManager(this);
 }
@@ -369,6 +383,13 @@ void AppController::wireSignals() {
     });
     connect(m_welcomePage, &WelcomePage::loginRequested, m_steamSession,
             &SteamSessionService::showLogin);
+    connect(m_detailPage, &DetailPage::loginRequested, this, [this]() {
+        m_historyLoginPending = true;
+        m_steamSession->showLogin();
+    });
+    connect(m_market, &MarketService::historyAuthenticationExpired, this, [this]() {
+        if (m_steamSession->isAuthenticated()) m_steamSession->markSessionRejected();
+    });
     connect(m_welcomePage, &WelcomePage::rememberGuestChanged, this, [this](bool remember) {
         AppSettings next = m_settings->settings();
         next.startupIdentityMode = remember ? AppSettings::StartupIdentityMode::kGuest
@@ -381,11 +402,24 @@ void AppController::wireSignals() {
     connect(m_steamSession, &SteamSessionService::identityChanged, this,
             [this](const IdentitySnapshot &snapshot) {
                 m_welcomePage->setLoginBusy(snapshot.state == IdentityState::Authenticating);
+                m_market->setHistoryAuthenticated(snapshot.state == IdentityState::Authenticated);
                 if (snapshot.state == IdentityState::Authenticated) {
+                    accumulateHistory();  // 登录后立即为自选物品积累历史
                     m_mainWindow->setWelcomeVisible(false);
-                    m_mainWindow->navigateTo(QStringLiteral("inventory"));
+                    if (m_historyLoginPending) {
+                        m_historyLoginPending = false;
+                        m_detailPage->refreshHistory();
+                    } else {
+                        m_mainWindow->navigateTo(QStringLiteral("inventory"));
+                    }
+                } else if (snapshot.state != IdentityState::Authenticating) {
+                    // 注销或会话过期后立即让详情页切换为“缓存 + 登录引导”。
+                    m_detailPage->refreshHistory();
                 }
             });
+    connect(m_steamSession, &SteamSessionService::loginSurfaceClosed, this, [this]() {
+        if (!m_steamSession->isAuthenticated()) m_historyLoginPending = false;
+    });
     connect(accountCard, &AccountCard::loginRequested, m_steamSession,
             &SteamSessionService::showLogin);
     connect(accountCard, &AccountCard::logoutRequested, this,
@@ -395,6 +429,7 @@ void AppController::wireSignals() {
         else m_mainWindow->setWelcomeVisible(true);
     });
     accountCard->setSnapshot(m_steamSession->snapshot());
+    m_market->setHistoryAuthenticated(m_steamSession->isAuthenticated());
     const bool smoke = QCoreApplication::arguments().contains(QStringLiteral("--smoke-test"));
     const bool startGuest = smoke || m_settings->settings().startupIdentityMode
                                         == AppSettings::StartupIdentityMode::kGuest;
@@ -449,6 +484,25 @@ void AppController::startRefreshTimer() {
     connect(m_refreshTimer, &QTimer::timeout, m_watchlist, &WatchlistService::refreshAll);
     m_refreshTimer->setInterval(m_settings->settings().refreshIntervalMinutes * 60000);
     m_refreshTimer->start();
+    // 后台历史积累：每 30 分钟为自选物品拉取一次 Steam 官方历史点，
+    // K 线、分时与 24h 涨跌幅随运行时间越来越准（仅登录后有效）。
+    m_historyTimer = new QTimer(this);
+    connect(m_historyTimer, &QTimer::timeout, this, &AppController::accumulateHistory);
+    m_historyTimer->setInterval(30 * 60 * 1000);
+    m_historyTimer->start();
+}
+
+void AppController::accumulateHistory() {
+    if (!m_servicesBuilt || !m_market || !m_watchlist) return;
+    // Steam 官方 pricehistory 需要已登录会话；未登录时跳过，避免无谓重试。
+    if (!m_steamSession->isAuthenticated() || !m_market->isHistoryAuthenticated()) return;
+    const QVector<WatchlistItem> list = m_watchlist->items();
+    for (const WatchlistItem &it : list) {
+        m_market->refreshHistory(it.marketHashName, it.appid);
+    }
+    if (!list.isEmpty()) {
+        qInfo() << "后台历史积累: 已为" << list.size() << "个自选物品排队拉取官方历史";
+    }
 }
 
 void AppController::applySettings() {
@@ -456,6 +510,11 @@ void AppController::applySettings() {
     const AppSettings s = m_settings->settings();
     CurrencyProvider::setCode(s.currency);
     ThemeProvider::setScheme(s.colorScheme);
+    // 应用级代理：市场接口、库存接口与图标下载等所有网络组件统一生效。
+    QNetworkProxy::setApplicationProxy(ProxyConfig::proxyFromSettings(s));
+    if (m_nam) {
+        m_nam->setProxy(QNetworkProxy::DefaultProxy);
+    }
     m_client->setCurrency(s.currency);
     m_client->setRequestIntervalMs(s.requestIntervalMs);
     if (m_overviewPage) m_overviewPage->setCurrency(s.currency);
@@ -562,6 +621,7 @@ bool AppController::seedDemoData(QSqlDatabase &db) {
     }
     book.highestBuy = book.buyOrders.first().price;
     book.lowestSell = book.sellOrders.first().price;
+    book.steamCurrencyId = 23;
     book.fetchedAt = QDateTime::currentDateTimeUtc();
     m_orderbookRepo->save(book);
     m_trades->record(names.at(0), TradeRecord::Side::kBuy, 2, 95.0, QStringLiteral("smoke"));
@@ -638,7 +698,8 @@ bool AppController::verifyCore(QSqlDatabase &db, int *triggeredCount) {
     return failures == 0;
 }
 
-int AppController::runSmokeTest(const QString &pngPath, const QSize &windowSize) {
+int AppController::runSmokeTest(const QString &pngPath, const QSize &windowSize,
+                                const QString &scene) {
     const QString tmpDir = QDir::tempPath()
                            + QStringLiteral("/smt_smoke_")
                            + QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -659,12 +720,54 @@ int AppController::runSmokeTest(const QString &pngPath, const QSize &windowSize)
 
     int result = coreOk ? 0 : 1;
     if (!pngPath.isEmpty()) {
-        // 展示主窗口并截图（自选页有数据），供视觉验收。
+        // 展示指定页面并截图，供视觉验收。详情页仅使用临时库中的
+        // 确定性数据，同时保留游客态的登录引导。
         m_mainWindow->resize(windowSize);
-        m_mainWindow->navigateTo(QStringLiteral("trading"));
+        const QString normalizedScene = scene.trimmed().toLower();
+        const bool hoverDetail = normalizedScene == QStringLiteral("detail-hover");
+        if (normalizedScene == QStringLiteral("detail") || hoverDetail) {
+            m_mainWindow->showDetail(QStringLiteral("AK-47 | Redline (Field-Tested)"), 730);
+        } else if (normalizedScene == QStringLiteral("welcome")) {
+            m_mainWindow->setWelcomeVisible(true);
+        } else {
+            const QString page = normalizedScene.isEmpty()
+                                     || normalizedScene == QStringLiteral("trading")
+                                 ? QStringLiteral("overview") : normalizedScene;
+            m_mainWindow->navigateTo(page);
+        }
         m_mainWindow->show();
+        if (hoverDetail) {
+            QTimer::singleShot(700, [this]() {
+                const auto charts = m_detailPage->findChildren<PriceChart *>();
+                for (PriceChart *priceChart : charts) {
+                    if (!priceChart->isVisible()) continue;
+                    QChartView *view = priceChart->findChild<QChartView *>();
+                    if (!view || view->chart()->plotArea().isEmpty()) continue;
+                    const QPoint position = view->chart()->plotArea().center().toPoint();
+                    const QPointF localPosition(position);
+                    const QPointF globalPosition(view->viewport()->mapToGlobal(position));
+                    QMouseEvent move(QEvent::MouseMove, localPosition, localPosition,
+                                     globalPosition, Qt::NoButton, Qt::NoButton,
+                                     Qt::NoModifier);
+                    QApplication::sendEvent(view->viewport(), &move);
+                    break;
+                }
+            });
+        }
         QEventLoop loop;
-        QTimer::singleShot(1200, [this, pngPath, &result, &loop]() {
+        QTimer::singleShot(1200, [this, pngPath, normalizedScene, &result, &loop]() {
+            if (normalizedScene == QLatin1String("inventory")) {
+                QPushButton *batchAction = m_mainWindow->findChild<QPushButton *>(
+                    QStringLiteral("batchListingVisibleAction"));
+                const bool centerOnScreen = batchAction
+                    && m_mainWindow->rect().contains(
+                        batchAction->mapTo(m_mainWindow, batchAction->rect().center()));
+                if (!batchAction || !batchAction->isVisibleTo(m_mainWindow)
+                    || !centerOnScreen) {
+                    qCritical() << "冒烟失败：库存首屏缺少可见的批量上架入口";
+                    result = 1;
+                }
+            }
             const QPixmap shot = m_mainWindow->grab();
             if (!shot.save(pngPath)) {
                 qCritical() << "冒烟失败：截图保存失败" << pngPath;

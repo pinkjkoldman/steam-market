@@ -2,18 +2,25 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QFormLayout>
+#include <QFrame>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QStandardItemModel>
+#include <QStandardPaths>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include "core/services/SettingsService.h"
+#include "utils/AppInfo.h"
 
 SettingsPage::SettingsPage(SettingsService *service, QWidget *parent)
     : QWidget(parent), m_service(service) {
+    setMinimumHeight(620);
     m_currency = new QComboBox(this);
     m_currency->addItems({QStringLiteral("CNY"), QStringLiteral("USD"), QStringLiteral("EUR"),
                           QStringLiteral("RUB")});
@@ -51,12 +58,41 @@ SettingsPage::SettingsPage(SettingsService *service, QWidget *parent)
     m_feeGame->setDecimals(2);
     m_feeGame->setSuffix(QStringLiteral(" %"));
     m_feeGame->setValue(10.0);
+    m_proxyMode = new QComboBox(this);
+    m_proxyMode->addItem(QStringLiteral("跟随系统"), QStringLiteral("system"));
+    m_proxyMode->addItem(QStringLiteral("直连（不使用代理）"), QStringLiteral("disabled"));
+    m_proxyMode->addItem(QStringLiteral("HTTP 代理"), QStringLiteral("http"));
+    m_proxyMode->addItem(QStringLiteral("SOCKS5 代理"), QStringLiteral("socks5"));
+    m_proxyHost = new QLineEdit(this);
+    m_proxyHost->setPlaceholderText(QStringLiteral("如 127.0.0.1"));
+    m_proxyPort = new QSpinBox(this);
+    m_proxyPort->setRange(1, 65535);
+    m_proxyPort->setValue(1080);
+    m_proxyHint = new QLabel(QStringLiteral("代理无法连接 Steam 时可切换到直连或其它模式，保存后立即生效"), this);
+    m_proxyHint->setWordWrap(true);
+    m_proxyHint->setObjectName(QStringLiteral("mutedText"));
 
     auto *saveBtn = new QPushButton(QStringLiteral("保存设置"), this);
     m_backupBtn = new QPushButton(QStringLiteral("立即备份数据库"), this);
     auto *hint = new QLabel(
         QStringLiteral("第三方比价支持 CSV 导入（market_hash_name,platform,price,currency,url）"), this);
     hint->setWordWrap(true);
+
+    // 关于
+    auto *aboutLabel = new QLabel(
+        QStringLiteral("Steam 行情终端 v" APP_VERSION
+                       "\nWindows 桌面应用 · Qt 6 · C++17"
+                       "\n\n本软件为非官方工具，行情数据来自 Steam 社区市场公开接口，"
+       "仅供个人参考，不构成任何交易建议。"
+                       "\n软件不收集、不上传任何用户数据；登录仅用于获取自己的库存与官方历史价格。"),
+        this);
+    aboutLabel->setWordWrap(true);
+    auto *openDataDirBtn = new QPushButton(QStringLiteral("打开数据目录"), this);
+    auto *openLogDirBtn = new QPushButton(QStringLiteral("打开日志目录"), this);
+    auto *aboutActions = new QHBoxLayout();
+    aboutActions->addWidget(openDataDirBtn);
+    aboutActions->addWidget(openLogDirBtn);
+    aboutActions->addStretch();
 
     auto *form = new QFormLayout();
     form->addRow(QStringLiteral("默认游戏"), m_game);
@@ -69,19 +105,50 @@ SettingsPage::SettingsPage(SettingsService *service, QWidget *parent)
     form->addRow(QStringLiteral("接口请求间隔"), m_requestMs);
     form->addRow(QStringLiteral("费用·Steam 费率"), m_feeSteam);
     form->addRow(QStringLiteral("费用·游戏费率"), m_feeGame);
+    form->addRow(QStringLiteral("网络代理"), m_proxyMode);
+    form->addRow(QStringLiteral("代理地址"), m_proxyHost);
+    form->addRow(QStringLiteral("代理端口"), m_proxyPort);
+    form->addRow(m_proxyHint);
     form->addRow(saveBtn);
     form->addRow(m_backupBtn);
     form->addRow(hint);
+    form->addRow(QStringLiteral("关于"), aboutLabel);
+    form->addRow(aboutActions);
 
     auto *layout = new QVBoxLayout(this);
-    layout->addLayout(form);
-    layout->addStretch();
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+
+    auto *card = new QFrame(this);
+    card->setObjectName(QStringLiteral("pageCard"));
+    auto *cardLayout = new QVBoxLayout(card);
+    cardLayout->setContentsMargins(16, 16, 16, 16);
+    cardLayout->setSpacing(12);
+    cardLayout->addLayout(form);
+    cardLayout->addStretch();
+
+    layout->addWidget(card, 1);
 
     connect(m_service, &SettingsService::settingsChanged, this, &SettingsPage::loadFrom);
     connect(saveBtn, &QPushButton::clicked, this, &SettingsPage::save);
+    connect(m_proxyMode, &QComboBox::currentIndexChanged, this, [this](int index) {
+        const bool manual = index == 2 || index == 3;  // HTTP / SOCKS5
+        m_proxyHost->setEnabled(manual);
+        m_proxyPort->setEnabled(manual);
+    });
     connect(m_backupBtn, &QPushButton::clicked, this, [this]() {
         emit settingsSaved(m_service->settings());  // AppController 订阅并执行备份
         QMessageBox::information(this, QStringLiteral("备份"), QStringLiteral("数据库备份完成"));
+    });
+    connect(openDataDirBtn, &QPushButton::clicked, this, []() {
+        QDesktopServices::openUrl(
+            QUrl::fromLocalFile(QStandardPaths::writableLocation(
+                QStandardPaths::AppDataLocation)));
+    });
+    connect(openLogDirBtn, &QPushButton::clicked, this, []() {
+        QDesktopServices::openUrl(
+            QUrl::fromLocalFile(QStandardPaths::writableLocation(
+                QStandardPaths::AppDataLocation) + QStringLiteral("/logs")));
     });
     loadFrom(m_service->settings());
 }
@@ -103,6 +170,13 @@ void SettingsPage::loadFrom(const AppSettings &settings) {
     m_requestMs->setValue(settings.requestIntervalMs);
     m_feeSteam->setValue(settings.feeSteamRate * 100.0);
     m_feeGame->setValue(settings.feeGameRate * 100.0);
+    m_proxyMode->setCurrentIndex(static_cast<int>(settings.proxyMode));
+    m_proxyHost->setText(settings.proxyHost);
+    m_proxyPort->setValue(settings.proxyPort);
+    const bool manualProxy = settings.proxyMode == AppSettings::ProxyMode::kHttp
+                             || settings.proxyMode == AppSettings::ProxyMode::kSocks5;
+    m_proxyHost->setEnabled(manualProxy);
+    m_proxyPort->setEnabled(manualProxy);
 }
 
 void SettingsPage::save() {
@@ -121,6 +195,16 @@ void SettingsPage::save() {
     next.requestIntervalMs = m_requestMs->value();
     next.feeSteamRate = m_feeSteam->value() / 100.0;
     next.feeGameRate = m_feeGame->value() / 100.0;
+    next.proxyMode = static_cast<AppSettings::ProxyMode>(m_proxyMode->currentIndex());
+    next.proxyHost = m_proxyHost->text().trimmed();
+    next.proxyPort = m_proxyPort->value();
+    if ((next.proxyMode == AppSettings::ProxyMode::kHttp
+         || next.proxyMode == AppSettings::ProxyMode::kSocks5)
+        && next.proxyHost.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("代理配置不完整"),
+                             QStringLiteral("选择了手动代理但未填写代理地址"));
+        return;
+    }
     if (m_service->save(next)) {
         emit settingsSaved(next);
         QMessageBox::information(this, QStringLiteral("设置已保存"),

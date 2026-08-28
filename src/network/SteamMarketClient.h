@@ -16,7 +16,7 @@
 class QNetworkAccessManager;
 class QNetworkReply;
 
-using SearchCallback = std::function<void(QVector<MarketItem>, const AppError &)>;
+using SearchCallback = std::function<void(QVector<MarketItem>, int totalCount, const AppError &)>;
 using OverviewCallback = std::function<void(PriceOverview, const AppError &)>;
 using HistoryCallback = std::function<void(QVector<PricePoint>, const AppError &)>;
 using OrderbookCallback = std::function<void(Orderbook, const AppError &)>;
@@ -33,7 +33,8 @@ public:
     void setCurrency(const QString &currencyCode);
     void setRequestIntervalMs(qint64 ms);
 
-    void search(const QString &query, int appid, SearchCallback callback);
+    // start：分页起始偏移（Steam search/render 的 start 参数），默认第一页。
+    void search(const QString &query, int appid, SearchCallback callback, int start = 0);
     void fetchOverview(const QString &marketHashName, int appid, OverviewCallback callback);
     void fetchHistory(const QString &marketHashName, int appid, HistoryCallback callback);
     void fetchOrderbook(const QString &marketHashName, int appid, OrderbookCallback callback);
@@ -45,6 +46,7 @@ private:
         QString marketHashName;
         QString query;
         int appid = 730;
+        int start = 0;
         int attempt = 0;
         SearchCallback searchCb;
         OverviewCallback overviewCb;

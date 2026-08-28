@@ -88,6 +88,8 @@ WebView2 设置：
 ## 7. 输入与输出校验
 
 - SteamID：17 位十进制字符串；不转 double；
+- 交易对象：只接受 17 位 SteamID64，或精确主机 `steamcommunity.com`、精确路径 `/tradeoffer/new/` 的 HTTPS 官方链接；拒绝 userinfo、片段、非 443 端口及未知参数；
+- 交易链接 token 仅用于本次页面跳转，不写日志、不写 SQLite、不进入设置；
 - appid：配置白名单正整数；contextid：1–20 位数字字符串；
 - assetid/classid/instanceid：1–32 位数字字符串；
 - market_hash_name：UTF-8 ≤256 字符，URL 参数必须由 `QUrlQuery` 编码；
@@ -100,6 +102,7 @@ WebView2 设置：
 - 应用只在用户主动点击时同步库存、生成草稿并打开官方页面；
 - 不后台循环选择或交易，不自动操作 Steam 页面，不自动确认；
 - Steam 官方页面的提交按钮必须由用户亲自点击；
+- 单品交易打开官方报价页后，物品选择、对方身份核对及 Steam Guard 确认均由用户完成；
 - 页面打开不等于上架成功，本地不作成功声明；
 - 用户协议或页面结构变化时可远程端点总开关关闭相关入口，但不能静默绕过限制。
 

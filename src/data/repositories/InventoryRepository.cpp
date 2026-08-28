@@ -163,7 +163,7 @@ QVector<InventoryGroup> InventoryRepository::groups(const QString &steamId, int 
     QVector<InventoryGroup> result;
     QSqlQuery query(m_database);
     QString sql = QStringLiteral(
-        "SELECT d.market_hash_name,d.display_name,d.category,d.icon_url,SUM(a.amount),GROUP_CONCAT(a.asset_id,'|') "
+        "SELECT d.market_hash_name,d.display_name,d.category,d.icon_url,SUM(a.amount),GROUP_CONCAT(a.asset_id,'|'),MIN(d.marketable),MIN(d.tradable) "
         "FROM inventory_assets a JOIN inventory_descriptions d ON d.appid=a.appid AND d.class_id=a.class_id AND d.instance_id=a.instance_id "
         "WHERE a.steam_id=? AND a.appid=? AND a.context_id=?");
     if (marketableOnly) sql += QStringLiteral(" AND d.marketable=1 AND d.market_hash_name IS NOT NULL");
@@ -185,6 +185,8 @@ QVector<InventoryGroup> InventoryRepository::groups(const QString &steamId, int 
         group.iconUrl = query.value(3).toString();
         group.inventoryQuantity = query.value(4).toInt();
         group.assetIds = query.value(5).toString().split(QLatin1Char('|'), Qt::SkipEmptyParts);
+        group.marketable = query.value(6).toInt() == 1;
+        group.tradable = query.value(7).toInt() == 1;
         result.append(group);
     }
     return result;

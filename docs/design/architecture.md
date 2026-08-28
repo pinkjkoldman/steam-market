@@ -181,7 +181,7 @@ flowchart TB
     SVC2 --> DATA2
 ```
 
-- **盘口**：新增 `SteamOrderbookClient` 调 `itemordershistogram`（country/language/currency/appid/market_hash_name），解析 `buy_order_graph`/`sell_order_graph`/`lowest_sell_order`/`highest_buy_order`；与现有限速器共用串行队列；
+- **盘口**：`SteamMarketClient` 调 Steam 新版 `/market/orderbook?q=Load&qp=[appid,market_hash_name]`，附带 `x-valve-request-type: queryAction`，解析紧凑买卖档位、最优价格及响应币种；与现有限速器共用串行队列；
 - **K线**：`KlineService` 从 `price_history` 聚合日 OHLC + 成交量（按 UTC 日），均线在内存计算，不落库；
 - **排行榜**：`RankingService` 基于本地快照/历史计算成交量榜、涨幅榜（对比 24h 前快照）、跌幅榜；
 - **规则库**：`rules.json` 内嵌资源（QRC），`TradingRulesService` 提供分类查询；费率默认 CS2 5%+10%，存 settings 可调；
@@ -198,7 +198,7 @@ sequenceDiagram
     participant C as SteamOrderbookClient
     participant DB as SQLite
     D->>OB: loadOrderbook(hashName)
-    OB->>C: GET itemordershistogram
+    OB->>C: GET /market/orderbook (queryAction)
     alt 成功
         C-->>OB: 买卖盘数组 + 最优价
         OB->>DB: upsert orderbook_snapshots

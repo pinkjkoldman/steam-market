@@ -36,19 +36,25 @@ bool PriceRepository::saveHistory(const QString &marketHashName, int appid,
     q.prepare(QStringLiteral(
         "INSERT INTO price_history (market_hash_name, appid, currency, price, volume, recorded_at) "
         "VALUES (?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(market_hash_name, appid, currency, recorded_at) DO NOTHING"));
-    qint64 inserted = 0;
+        "ON CONFLICT(market_hash_name, appid, currency, recorded_at) DO UPDATE SET "
+        "price = excluded.price, volume = excluded.volume"));
+    qint64 saved = 0;
     for (const PricePoint &p : points) {
         q.addBindValue(marketHashName);
         q.addBindValue(appid);
         q.addBindValue(currency);
         q.addBindValue(p.price);
-        q.addBindValue(p.volume <= 0 ? QVariant() : QVariant(p.volume));
+        q.addBindValue((p.hasVolume || p.volume > 0) ? QVariant(p.volume) : QVariant());
         q.addBindValue(p.recordedAt.toString(Qt::ISODate));
-        if (q.exec()) ++inserted;
+        if (!q.exec()) {
+            qWarning() << "saveHistory 失败:" << q.lastError().text();
+            m_db.rollback();
+            return false;
+        }
+        ++saved;
     }
     const bool ok = m_db.commit();
-    qInfo() << "saveHistory 写入" << inserted << "条（" << marketHashName << "）";
+    qInfo() << "saveHistory 保存" << saved << "条（" << marketHashName << "）";
     return ok;
 }
 
@@ -109,7 +115,8 @@ QVector<PricePoint> PriceRepository::history(const QString &marketHashName, int 
         PricePoint p;
         p.recordedAt = QDateTime::fromString(q.value(0).toString(), Qt::ISODate);
         p.price = q.value(1).toDouble();
-        p.volume = q.value(2).isNull() ? 0 : q.value(2).toInt();
+        p.hasVolume = !q.value(2).isNull();
+        p.volume = p.hasVolume ? q.value(2).toInt() : 0;
         out.append(p);
     }
     return out;

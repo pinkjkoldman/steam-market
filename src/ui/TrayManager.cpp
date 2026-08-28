@@ -1,5 +1,7 @@
 #include "ui/TrayManager.h"
 
+#include "utils/AppInfo.h"
+
 #include <QApplication>
 #include <QMenu>
 #include <QStyle>
@@ -7,8 +9,8 @@
 
 TrayManager::TrayManager(QObject *parent) : QObject(parent) {
     m_tray = new QSystemTrayIcon(this);
-    m_tray->setIcon(QApplication::style()->standardIcon(QStyle::SP_ComputerIcon));
-    m_tray->setToolTip(QStringLiteral("Steam 行情终端"));
+    m_tray->setIcon(QIcon(QStringLiteral(":/ui/app.png")));
+    m_tray->setToolTip(QStringLiteral("Steam 行情终端 v" APP_VERSION));
 
     m_menu = new QMenu();
     QAction *showAction = m_menu->addAction(QStringLiteral("显示主窗口"));

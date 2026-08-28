@@ -2,6 +2,7 @@
 
 #include <QWidget>
 
+#include "core/models/HistorySnapshot.h"
 #include "core/models/PricePoint.h"
 
 class QLabel;
@@ -18,6 +19,7 @@ class OrderbookService;
 class PriceChart;
 class KlineChart;
 class OrderbookPanel;
+class LoadingOverlay;
 
 // 物品详情页：分时/日K/走势 + 价格卡片 + 数据统计 + 盘口 + 平台比价。
 class DetailPage : public QWidget {
@@ -30,12 +32,16 @@ public:
 
 public slots:
     void showItem(const QString &marketHashName, int appid);
+    void refreshHistory();
     void refreshCompare();
 
 signals:
     void backRequested();
+    void loginRequested();
 
 private:
+    void applyHistory(const HistorySnapshot &snapshot);
+    void updateHistoryStats();
     MarketService *m_market = nullptr;
     WatchlistService *m_watchlist = nullptr;
     AlertService *m_alerts = nullptr;
@@ -52,11 +58,14 @@ private:
     QLabel *m_status = nullptr;
     QPushButton *m_watchBtn = nullptr;
     QPushButton *m_alertBtn = nullptr;
+    QPushButton *m_historyLoginBtn = nullptr;
+    QPushButton *m_historyRefreshBtn = nullptr;
     QComboBox *m_range = nullptr;
     PriceChart *m_trendChart = nullptr;
     PriceChart *m_minuteChart = nullptr;
     KlineChart *m_klineChart = nullptr;
     OrderbookPanel *m_orderbookPanel = nullptr;
     QTableWidget *m_compareTable = nullptr;
+    LoadingOverlay *m_loading = nullptr;
     QVector<PricePoint> m_history;
 };

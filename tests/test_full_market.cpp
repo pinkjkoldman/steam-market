@@ -9,6 +9,7 @@
 #include "data/repositories/MarketCatalogRepository.h"
 #include "network/SteamMarketCatalogClient.h"
 #include "test_helpers.h"
+#include "ui/widgets/MarketPageFilterEngine.h"
 
 namespace {
 QByteArray validCatalogFixture() {
@@ -114,6 +115,33 @@ void TestFullMarket::boundsRetryAfterDelay() {
     QCOMPARE(SteamMarketCatalogClient::retryAfterDelayMs("-1"), qint64(30000));
     QCOMPARE(SteamMarketCatalogClient::retryAfterDelayMs("9223372036854775807"),
              qint64(24 * 60 * 60 * 1000));
+}
+
+void TestFullMarket::filtersCurrentPageAndBuildsVisualSummary() {
+    QVector<MarketCatalogItemView> items;
+    items.append({730, QStringLiteral("Case A"), QStringLiteral("武器箱 A"),
+                  QStringLiteral("普通级武器箱"), QString(), 100, 50});
+    items.append({730, QStringLiteral("Case B"), QStringLiteral("武器箱 B"),
+                  QStringLiteral("稀有武器箱"), QString(), 300, 500});
+    items.append({730, QStringLiteral("Sticker A"), QStringLiteral("印花 A"),
+                  QStringLiteral("高级印花"), QString(), 200, 1000});
+    items.append({730, QStringLiteral("Unpriced"), QStringLiteral("暂无报价"),
+                  QStringLiteral("稀有武器箱"), QString(), 0, 0});
+
+    MarketPageFilter filter;
+    filter.typeContains = QStringLiteral("武器箱");
+    filter.minimumPriceMinor = 100;
+    filter.maximumPriceMinor = 350;
+    filter.minimumListings = 40;
+    filter.pricedOnly = true;
+    const MarketPageFilterResult result = MarketPageFilterEngine::apply(items, filter);
+
+    QCOMPARE(result.items.size(), 2);
+    QCOMPARE(result.items.first().marketHashName, QStringLiteral("Case A"));
+    QCOMPARE(result.minimumPriceMinor, qint64(100));
+    QCOMPARE(result.maximumPriceMinor, qint64(300));
+    QCOMPARE(result.medianPriceMinor, qint64(200));
+    QCOMPARE(result.totalListings, qint64(550));
 }
 
 void TestFullMarket::cacheKeySeparatesDimensions() {

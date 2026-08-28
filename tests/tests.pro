@@ -41,15 +41,23 @@ SOURCES += \
     ../src/core/services/TradeSimulationService.cpp \
     ../src/core/services/PricingDraftService.cpp \
     ../src/core/services/MultiSellHandoffService.cpp \
+    ../src/core/services/TradeHandoffService.cpp \
     ../src/core/services/SteamSessionService.cpp \
     ../src/network/InventoryParser.cpp \
+    ../src/network/SteamInventoryClient.cpp \
+    ../src/network/SteamMarketClient.cpp \
+    ../src/network/SteamOrderbookParser.cpp \
+    ../src/network/SteamHistoryParser.cpp \
     ../src/price_sources/CsvPriceSource.cpp \
     ../src/network/SteamMarketCatalogClient.cpp \
     ../src/data/repositories/MarketCatalogRepository.cpp \
     ../src/core/services/FullMarketService.cpp \
     ../src/core/services/AccessGate.cpp \
+    ../src/ui/widgets/MarketPageFilterEngine.cpp \
     test_full_market.cpp \
-    test_account_entry.cpp
+    test_account_entry.cpp \
+    test_steam_history_parser.cpp \
+    test_steam_orderbook_parser.cpp
 
 HEADERS += \
     test_database.h \
@@ -81,9 +89,15 @@ HEADERS += \
     ../src/core/services/TradeSimulationService.h \
     ../src/core/services/PricingDraftService.h \
     ../src/core/services/MultiSellHandoffService.h \
+    ../src/core/services/TradeHandoffService.h \
     ../src/core/services/SteamSessionService.h \
     ../src/network/IWebSessionHost.h \
     ../src/network/InventoryParser.h \
+    ../src/network/SteamInventoryClient.h \
+    ../src/network/SteamMarketClient.h \
+    ../src/network/SteamOrderbookParser.h \
+    ../src/network/SteamHistoryParser.h \
+    ../src/network/RateLimiter.h \
     ../src/price_sources/CsvPriceSource.h \
     ../src/core/errors.h \
     ../src/core/models/MarketItem.h \
@@ -106,8 +120,12 @@ HEADERS += \
     ../src/core/models/IdentitySnapshot.h \
     ../src/core/services/FullMarketService.h \
     ../src/core/services/AccessGate.h \
+    ../src/ui/widgets/MarketPageFilterEngine.h \
+    ../src/ui/widgets/WorkbenchModels.h \
     test_full_market.h \
-    test_account_entry.h
+    test_account_entry.h \
+    test_steam_history_parser.h \
+    test_steam_orderbook_parser.h
 
 
 RESOURCES += ../src/data/migrations.qrc

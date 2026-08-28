@@ -10,6 +10,7 @@ private slots:
     void freshSessionFailureBlocksNavigation();
     void authenticatesAtomicallyAfterFreshSession();
     void cancelDiscardsLatePreparation();
+    void closingLoginSurfaceRestoresOrigin();
     void logoutClearsBothCookieStores();
     void rejectsMismatchedSteamIdSignal();
     void sessionRejectionExpiresIdentity();

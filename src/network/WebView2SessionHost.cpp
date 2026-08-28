@@ -9,6 +9,7 @@
 #include <QDialog>
 #include <QEvent>
 #include <QFileInfo>
+#include <QLabel>
 #include <QNetworkCookie>
 #include <QStandardPaths>
 #include <QUrl>
@@ -147,8 +148,14 @@ public:
         return E_NOINTERFACE;
     }
     HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2 *,
-                                     ICoreWebView2NavigationCompletedEventArgs *) override {
-        m_host->onNavigationCompleted();
+                                     ICoreWebView2NavigationCompletedEventArgs *args) override {
+        BOOL success = FALSE;
+        COREWEBVIEW2_WEB_ERROR_STATUS errorStatus = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
+        if (args) {
+            args->get_IsSuccess(&success);
+            args->get_WebErrorStatus(&errorStatus);
+        }
+        m_host->onNavigationCompleted(success != FALSE, static_cast<long>(errorStatus));
         return S_OK;
     }
 
@@ -244,10 +251,26 @@ WebView2SessionHost::WebView2SessionHost(QObject *parent) : IWebSessionHost(pare
     m_dialog->resize(1000, 720);
     auto *layout = new QVBoxLayout(m_dialog);
     layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    m_status = new QLabel(m_dialog);
+    m_status->setAlignment(Qt::AlignCenter);
+    m_status->setWordWrap(true);
+    m_status->setMinimumHeight(48);
+    m_status->setStyleSheet(QStringLiteral(
+        "QLabel { background: #121722; color: #dce6f2; padding: 12px 18px; "
+        "font-size: 13px; border-bottom: 1px solid #293244; }"));
+    m_status->hide();
+    layout->addWidget(m_status);
     m_surface = new QWidget(m_dialog);
     m_surface->setAttribute(Qt::WA_NativeWindow);
     m_surface->installEventFilter(this);
     layout->addWidget(m_surface);
+    connect(m_dialog, &QDialog::finished, this, [this](int) {
+        if (m_freshSessionPreparing) {
+            finishFreshSessionPreparation(FreshSessionResult::ClearFailed);
+        }
+        emit surfaceClosedByUser();
+    });
 }
 
 WebView2SessionHost::~WebView2SessionHost() {
@@ -259,11 +282,19 @@ WebView2SessionHost::~WebView2SessionHost() {
 }
 
 void WebView2SessionHost::showLogin() {
+    // A prepared clean profile is consumed by this login attempt. The next
+    // attempt must clear cookies again, even if the user closes this window.
+    m_freshSessionPrepared = false;
     m_pendingUrl = QUrl(QStringLiteral("https://steamcommunity.com/login/home/"));
+    showSurfaceMessage(QStringLiteral("正在打开 Steam 官方登录页面…"));
     m_dialog->show();
     m_dialog->raise();
     m_dialog->activateWindow();
     if (ensureInitialized()) navigatePending();
+}
+
+void WebView2SessionHost::dismissSurface() {
+    if (m_dialog) m_dialog->hide();
 }
 
 void WebView2SessionHost::openOfficialUrl(const QUrl &url) {
@@ -272,6 +303,7 @@ void WebView2SessionHost::openOfficialUrl(const QUrl &url) {
         return;
     }
     m_pendingUrl = url;
+    showSurfaceMessage(QStringLiteral("正在打开 Steam 官方页面…"));
     m_dialog->show();
     if (ensureInitialized()) navigatePending();
 }
@@ -308,6 +340,11 @@ void WebView2SessionHost::prepareFreshLoginSession(
     }
     m_freshSessionPreparing = true;
     m_freshSessionCompletion = std::move(completion);
+    m_pendingUrl = QUrl(QStringLiteral("https://steamcommunity.com/login/home/"));
+    showSurfaceMessage(QStringLiteral("正在准备安全的 Steam 官方登录环境…"));
+    m_dialog->show();
+    m_dialog->raise();
+    m_dialog->activateWindow();
     if (ensureInitialized()) continueFreshSessionPreparation();
 }
 
@@ -473,7 +510,16 @@ void WebView2SessionHost::updateBounds() {
     m_controller->put_Bounds(bounds);
 }
 
-void WebView2SessionHost::onNavigationCompleted() {
+void WebView2SessionHost::onNavigationCompleted(bool success, long webErrorStatus) {
+    if (!success) {
+        if (webErrorStatus != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) {
+            showSurfaceMessage(QStringLiteral(
+                "Steam 页面加载失败（错误 %1）。请检查网络后关闭窗口并重试。")
+                                   .arg(webErrorStatus));
+        }
+        return;
+    }
+    if (m_status) m_status->hide();
     if (!m_webView) return;
     LPWSTR source = nullptr;
     if (SUCCEEDED(m_webView->get_Source(&source))) {
@@ -482,6 +528,12 @@ void WebView2SessionHost::onNavigationCompleted() {
             requestCookies();
         }
     }
+}
+
+void WebView2SessionHost::showSurfaceMessage(const QString &message) {
+    if (!m_status) return;
+    m_status->setText(message);
+    m_status->show();
 }
 
 void WebView2SessionHost::requestCookies() {

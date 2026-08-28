@@ -7,4 +7,5 @@ struct PricePoint {
     QDateTime recordedAt;
     double price = 0.0;
     int volume = 0;
+    bool hasVolume = false;
 };

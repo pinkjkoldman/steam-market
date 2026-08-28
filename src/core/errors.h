@@ -10,6 +10,8 @@ enum class ErrorCode {
     kConflict,
     kNetworkError,
     kRateLimited,
+    kAuthenticationRequired,
+    kSourceInvalid,
     kDataSourceUnavailable,
     kInternal,
 };

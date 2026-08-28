@@ -60,3 +60,18 @@
 | CR-004/005 G3 视觉 | 1040×680、1280×800、1920×1080 市场概览冒烟图 | docs/test/smoke-g3-overview-*.png | 已交付，待 G3 审批 |
 | CR-004/005 G3 门禁 | 阶段 3 报告 | docs/approvals/phase-3-report-CR-004-CR-005.md | 待审批 |
 | CR-004 审批 | G1 审批记录 | docs/approvals/phase-1-approval-CR-004.md | 已交付 |
+| CR-006 变更 | 真实市场走势图变更登记与影响评估 | docs/approvals/change-request-CR-006-real-market-trends.md | 已批准 |
+| CR-006 需求 | 真实市场走势图 PRD | docs/requirements/PRD-CR-006-real-market-trends.md | 已批准 |
+| CR-006 需求 | US-45～US-51 与 Given/When/Then 验收标准 | docs/requirements/user-stories-CR-006-real-market-trends.md | 已批准 |
+| CR-006 门禁 | G1 需求阶段报告 | docs/approvals/phase-1-report-CR-006.md | 已批准 |
+| CR-006 审批 | G1 审批记录 | docs/approvals/phase-1-approval-CR-006.md | 已交付 |
+| CR-006 架构 | 类型化单品历史架构 | docs/design/architecture-CR-006-real-market-trends.md | 已交付，待 G2 审批 |
+| CR-006 ADR | 单品按需历史深模块决策 | docs/design/adr/ADR-005-typed-on-demand-market-history.md | 已交付，待 G2 审批 |
+| CR-006 API | 真实历史内部契约 | docs/design/api-contract-CR-006-real-market-trends.yaml | 已交付，待 G2 审批 |
+| CR-006 数据 | HistoryDataset/Provenance/Quality 模型 | docs/design/data-model-CR-006-real-market-trends.md | 已交付，待 G2 审批 |
+| CR-006 数据库 | v7 历史表重建、同步状态与恢复方案 | docs/design/database-design-CR-006-real-market-trends.md | 已交付，待 G2 审批 |
+| CR-006 安全 | 真实历史威胁模型与安全基线 | docs/design/security-CR-006-real-market-trends.md | 已交付，待 G2 审批 |
+| CR-006 UX | 真实走势流程与恢复状态 | docs/design/ux-CR-006-real-market-trends.md | 已交付，待 G2 审批 |
+| CR-006 UI | 双子图与状态组件契约 | docs/design/ui-spec-CR-006-real-market-trends.md | 已交付，待 G2 审批 |
+| CR-006 UI | 历史状态与图表设计令牌 | docs/design/design-tokens-CR-006-real-market-trends.md | 已交付，待 G2 审批 |
+| CR-006 门禁 | G2 系统设计阶段报告 | docs/approvals/phase-2-report-CR-006.md | 待审批 |

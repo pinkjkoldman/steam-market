@@ -22,6 +22,9 @@ QString jsonOf(const AppSettings &s) {
     o.insert(QStringLiteral("startupIdentityMode"),
              s.startupIdentityMode == AppSettings::StartupIdentityMode::kGuest
                  ? QStringLiteral("guest") : QStringLiteral("ask"));
+    o.insert(QStringLiteral("proxyMode"), static_cast<int>(s.proxyMode));
+    o.insert(QStringLiteral("proxyHost"), s.proxyHost);
+    o.insert(QStringLiteral("proxyPort"), s.proxyPort);
     return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
 }
 
@@ -47,6 +50,10 @@ AppSettings settingsOf(const QString &json) {
     s.startupIdentityMode = startupMode == QLatin1String("guest")
                                 ? AppSettings::StartupIdentityMode::kGuest
                                 : AppSettings::StartupIdentityMode::kAskEveryTime;
+    const int proxyMode = qBound(0, o.value(QStringLiteral("proxyMode")).toInt(0), 3);
+    s.proxyMode = static_cast<AppSettings::ProxyMode>(proxyMode);
+    s.proxyHost = o.value(QStringLiteral("proxyHost")).toString();
+    s.proxyPort = qBound(1, o.value(QStringLiteral("proxyPort")).toInt(1080), 65535);
     return s;
 }
 }  // namespace

@@ -1,10 +1,13 @@
 TEMPLATE = app
 TARGET = SteamMarketTerminal
+VERSION = 1.0.0
 QT += core gui widgets network sql charts
 CONFIG += c++17
 CONFIG -= app_bundle
 
 DEFINES += QT_DEPRECATED_WARNINGS
+
+RC_ICONS = ui/icons/app.ico
 
 DESTDIR = $$PWD/../bin
 OBJECTS_DIR = $$PWD/../build/obj
@@ -34,6 +37,7 @@ SOURCES += \
     core/services/InventoryService.cpp \
     core/services/PricingDraftService.cpp \
     core/services/MultiSellHandoffService.cpp \
+    core/services/TradeHandoffService.cpp \
     data/DatabaseManager.cpp \
     data/repositories/ItemRepository.cpp \
     data/repositories/InventoryRepository.cpp \
@@ -45,6 +49,8 @@ SOURCES += \
     data/repositories/SettingsRepository.cpp \
     data/repositories/TradeRepository.cpp \
     network/SteamMarketClient.cpp \
+    network/SteamOrderbookParser.cpp \
+    network/SteamHistoryParser.cpp \
     network/SteamInventoryClient.cpp \
     network/InventoryParser.cpp \
     network/WebView2SessionHost.cpp \
@@ -62,9 +68,12 @@ SOURCES += \
     ui/widgets/PriceChart.cpp \
     ui/widgets/KlineChart.cpp \
     ui/widgets/OrderbookPanel.cpp \
+    ui/widgets/IconCache.cpp \
+    ui/widgets/LoadingOverlay.cpp \
     ui/TrayManager.cpp \
     utils/Logger.cpp \
     ui/widgets/QuickInspector.cpp \
+    ui/widgets/MarketPageFilterEngine.cpp \
     ui/widgets/ScopeNotice.cpp \
     ui/widgets/AccountCard.cpp \
     ui/widgets/ModeCard.cpp \
@@ -83,6 +92,7 @@ HEADERS += \
     core/models/MarketItem.h \
     core/models/PriceOverview.h \
     core/models/PricePoint.h \
+    core/models/HistorySnapshot.h \
     core/models/WatchlistItem.h \
     core/models/Alert.h \
     core/models/PortfolioItem.h \
@@ -111,6 +121,7 @@ HEADERS += \
     core/services/InventoryService.h \
     core/services/PricingDraftService.h \
     core/services/MultiSellHandoffService.h \
+    core/services/TradeHandoffService.h \
     data/DatabaseManager.h \
     data/repositories/ItemRepository.h \
     data/repositories/InventoryRepository.h \
@@ -122,6 +133,8 @@ HEADERS += \
     data/repositories/SettingsRepository.h \
     data/repositories/TradeRepository.h \
     network/SteamMarketClient.h \
+    network/SteamOrderbookParser.h \
+    network/SteamHistoryParser.h \
     network/SteamInventoryClient.h \
     network/InventoryParser.h \
     network/IWebSessionHost.h \
@@ -141,12 +154,16 @@ HEADERS += \
     ui/widgets/PriceChart.h \
     ui/widgets/KlineChart.h \
     ui/widgets/OrderbookPanel.h \
+    ui/widgets/IconCache.h \
+    ui/widgets/LoadingOverlay.h \
     ui/TrayManager.h \
     utils/Logger.h \
     utils/Currency.h \
     utils/CurrencyProvider.h \
     utils/ThemeProvider.h \
+    utils/ProxyConfig.h \
     ui/widgets/QuickInspector.h \
+    ui/widgets/MarketPageFilterEngine.h \
     ui/widgets/ScopeNotice.h \
     ui/widgets/AccountCard.h \
     ui/widgets/ModeCard.h \
@@ -165,6 +182,7 @@ HEADERS += \
 
 RESOURCES += data/migrations.qrc
 RESOURCES += data/rules.qrc
+RESOURCES += ui/ui.qrc
 LIBS += -lole32 -luuid
 
 WEBVIEW2_LOADER = $$system_path($$PWD/../third_party/webview2/WebView2Loader.dll)

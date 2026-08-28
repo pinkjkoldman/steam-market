@@ -16,6 +16,14 @@ inline int steamId(const QString &code) {
     return 23;  // CNY
 }
 
+inline QString codeFromSteamId(int id) {
+    if (id == 1) return QStringLiteral("USD");
+    if (id == 3) return QStringLiteral("EUR");
+    if (id == 5) return QStringLiteral("RUB");
+    if (id == 23) return QStringLiteral("CNY");
+    return QString();
+}
+
 inline QString displaySymbol(const QString &code) {
     if (code == QLatin1String("USD")) return QStringLiteral("$");
     if (code == QLatin1String("EUR")) return QStringLiteral("€");

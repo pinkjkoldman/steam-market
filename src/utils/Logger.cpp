@@ -27,7 +27,7 @@ void rotateIfNeeded(QFile *file) {
 }
 
 void messageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg) {
-    if (!g_logFile) {
+    if (!g_logFile || !g_logFile->isOpen()) {
         return;
     }
     const char *level = "INFO";
@@ -69,7 +69,19 @@ void init() {
     }
     QDir().mkpath(g_logDir);
     g_logFile = new QFile(logFilePath());
-    g_logFile->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text);
+    if (!g_logFile->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        delete g_logFile;
+        const QString fallback = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                                 + QStringLiteral("/SteamMarketTerminal/logs");
+        QDir().mkpath(fallback);
+        g_logDir = fallback;
+        g_logFile = new QFile(logFilePath());
+        if (!g_logFile->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            delete g_logFile;
+            g_logFile = nullptr;
+            return;
+        }
+    }
     qInstallMessageHandler(messageHandler);
 }
 

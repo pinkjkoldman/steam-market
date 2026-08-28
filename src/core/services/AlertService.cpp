@@ -50,7 +50,9 @@ bool AlertService::meets(const Alert &alert, const PriceOverview &snap) const {
     const double past = m_prices->priceAtOrBefore(
         alert.marketHashName, alert.appid, CurrencyProvider::code(), snap.updatedAt.addDays(-1));
     if (past <= 0) return false;
-    return (price - past) / past * 100.0 >= alert.percentValue;
+    // 双向触发：涨或跌的绝对幅度达到阈值即满足（UI 文案为“涨跌幅超过”）。
+    const double changePercent = (price - past) / past * 100.0;
+    return qAbs(changePercent) >= alert.percentValue;
 }
 
 void AlertService::checkAll() {
@@ -80,8 +82,16 @@ void AlertService::checkAll() {
                        .arg(price, 0, 'f', 2)
                        .arg(alert.thresholdValue, 0, 'f', 2);
         } else {
-            text = QStringLiteral("%1 24h 涨跌幅已达阈值 %2%")
+            const double past = m_prices->priceAtOrBefore(alert.marketHashName, alert.appid,
+                                                          CurrencyProvider::code(),
+                                                          snap.updatedAt.addDays(-1));
+            const double changePercent = past > 0 ? (price - past) / past * 100.0 : 0.0;
+            text = QStringLiteral("%1 24h %2 %3%（当前 %4%5，阈值 %6%）")
                        .arg(alert.marketHashName)
+                       .arg(changePercent >= 0 ? QStringLiteral("涨") : QStringLiteral("跌"))
+                       .arg(qAbs(changePercent), 0, 'f', 1)
+                       .arg(symbol)
+                       .arg(price, 0, 'f', 2)
                        .arg(alert.percentValue, 0, 'f', 1);
         }
         m_repo->markTriggered(alert.id, now);

@@ -13,4 +13,5 @@ private slots:
     void cacheKeySeparatesDimensions();
     void repositoryRoundtripAndSnapshotDeduplication();
     void migrationUpgradesExistingSingleKeyItemsTable();
+    void filtersCurrentPageAndBuildsVisualSummary();
 };

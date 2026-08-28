@@ -1,15 +1,18 @@
 #include "ui/pages/RankingPage.h"
 
 #include <QComboBox>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QTableView>
 #include <QVBoxLayout>
 
 #include "core/services/RankingService.h"
+#include "ui/widgets/LoadingOverlay.h"
 #include "utils/Currency.h"
 #include "utils/CurrencyProvider.h"
 
@@ -37,14 +40,52 @@ RankingPage::RankingPage(RankingService *service, QWidget *parent)
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
 
     m_status = new QLabel(this);
-    auto *layout = new QVBoxLayout(this);
-    layout->addLayout(topRow);
-    layout->addWidget(hint);
-    layout->addWidget(m_table, 1);
-    layout->addWidget(m_status);
 
-    connect(m_by, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) { reload(); });
-    connect(refreshBtn, &QPushButton::clicked, this, &RankingPage::reload);
+    m_card = new QFrame(this);
+    m_card->setObjectName(QStringLiteral("pageCard"));
+    auto *cardLayout = new QVBoxLayout(m_card);
+    cardLayout->setContentsMargins(16, 16, 16, 16);
+    cardLayout->setSpacing(12);
+    cardLayout->addLayout(topRow);
+    cardLayout->addWidget(hint);
+    cardLayout->addWidget(m_table, 1);
+    cardLayout->addWidget(m_status);
+
+    m_emptyState = new QWidget(this);
+    auto *emptyLayout = new QVBoxLayout(m_emptyState);
+    emptyLayout->setAlignment(Qt::AlignCenter);
+    emptyLayout->setSpacing(8);
+    m_emptyIcon = new QLabel(QStringLiteral("🏆"), m_emptyState);
+    m_emptyIcon->setObjectName(QStringLiteral("emptyStateIcon"));
+    m_emptyIcon->setAlignment(Qt::AlignCenter);
+    m_emptyTitle = new QLabel(QStringLiteral("暂无榜单数据"), m_emptyState);
+    m_emptyTitle->setObjectName(QStringLiteral("emptyStateTitle"));
+    m_emptyTitle->setAlignment(Qt::AlignCenter);
+    m_emptySubtitle = new QLabel(QStringLiteral("搜索并浏览更多物品后，榜单将自动生成"), m_emptyState);
+    m_emptySubtitle->setObjectName(QStringLiteral("emptyStateSubtitle"));
+    m_emptySubtitle->setAlignment(Qt::AlignCenter);
+    emptyLayout->addWidget(m_emptyIcon);
+    emptyLayout->addWidget(m_emptyTitle);
+    emptyLayout->addWidget(m_emptySubtitle);
+
+    auto *viewStack = new QStackedWidget(this);
+    viewStack->addWidget(m_card);
+    viewStack->addWidget(m_emptyState);
+
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(viewStack, 1);
+
+    m_loading = new LoadingOverlay(this);
+    m_loading->setText(QStringLiteral("正在生成排行榜…"));
+
+    auto updateRanking = [this]() {
+        m_loading->show();
+        reload();
+    };
+    connect(m_by, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, updateRanking](int) { updateRanking(); });
+    connect(refreshBtn, &QPushButton::clicked, this, [this, updateRanking]() { updateRanking(); });
     connect(m_table, &QTableView::doubleClicked, this, [this]() {
         const QModelIndex idx = m_table->currentIndex();
         if (idx.isValid()) {
@@ -80,4 +121,11 @@ void RankingPage::reload() {
     m_status->setText(items.isEmpty()
                           ? QStringLiteral("数据积累中：搜索/收藏更多物品后自动生成榜单")
                           : QStringLiteral("共 %1 项").arg(items.size()));
+    updateEmptyState(items.isEmpty());
+    m_loading->hide();
+}
+
+void RankingPage::updateEmptyState(bool empty) {
+    auto *stack = qobject_cast<QStackedWidget *>(layout()->itemAt(0)->widget());
+    if (stack) stack->setCurrentIndex(empty ? 1 : 0);
 }

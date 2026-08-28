@@ -5,6 +5,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QFrame>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -12,6 +13,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QTableView>
 #include <QTableWidget>
@@ -19,6 +21,7 @@
 
 #include "core/services/PortfolioService.h"
 #include "core/services/TradeSimulationService.h"
+#include "ui/widgets/LoadingOverlay.h"
 #include "utils/Currency.h"
 #include "utils/CurrencyProvider.h"
 #include "utils/ThemeProvider.h"
@@ -58,11 +61,45 @@ PortfolioPage::PortfolioPage(PortfolioService *service, TradeSimulationService *
     m_summary = new QLabel(this);
     m_summary->setStyleSheet(QStringLiteral("font-weight: bold; padding: 6px;"));
     m_status = new QLabel(this);
+
+    m_card = new QFrame(this);
+    m_card->setObjectName(QStringLiteral("pageCard"));
+    auto *cardLayout = new QVBoxLayout(m_card);
+    cardLayout->setContentsMargins(16, 16, 16, 16);
+    cardLayout->setSpacing(12);
+    cardLayout->addLayout(topRow);
+    cardLayout->addWidget(m_summary);
+    cardLayout->addWidget(m_table, 1);
+    cardLayout->addWidget(m_status);
+
+    m_emptyState = new QWidget(this);
+    auto *emptyLayout = new QVBoxLayout(m_emptyState);
+    emptyLayout->setAlignment(Qt::AlignCenter);
+    emptyLayout->setSpacing(8);
+    m_emptyIcon = new QLabel(QStringLiteral("📊"), m_emptyState);
+    m_emptyIcon->setObjectName(QStringLiteral("emptyStateIcon"));
+    m_emptyIcon->setAlignment(Qt::AlignCenter);
+    m_emptyTitle = new QLabel(QStringLiteral("暂无持仓记录"), m_emptyState);
+    m_emptyTitle->setObjectName(QStringLiteral("emptyStateTitle"));
+    m_emptyTitle->setAlignment(Qt::AlignCenter);
+    m_emptySubtitle = new QLabel(QStringLiteral("点击“添加物品”记录成本，或“模拟买入”生成交易记录"), m_emptyState);
+    m_emptySubtitle->setObjectName(QStringLiteral("emptyStateSubtitle"));
+    m_emptySubtitle->setAlignment(Qt::AlignCenter);
+    emptyLayout->addWidget(m_emptyIcon);
+    emptyLayout->addWidget(m_emptyTitle);
+    emptyLayout->addWidget(m_emptySubtitle);
+
+    auto *viewStack = new QStackedWidget(this);
+    viewStack->addWidget(m_card);
+    viewStack->addWidget(m_emptyState);
+
     auto *layout = new QVBoxLayout(this);
-    layout->addLayout(topRow);
-    layout->addWidget(m_summary);
-    layout->addWidget(m_table, 1);
-    layout->addWidget(m_status);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(viewStack, 1);
+
+    m_loading = new LoadingOverlay(this);
+    m_loading->setText(QStringLiteral("正在刷新估值…"));
 
     connect(addBtn, &QPushButton::clicked, this, [this]() { addEdit(0); });
     connect(editBtn, &QPushButton::clicked, this, [this]() {
@@ -81,7 +118,10 @@ PortfolioPage::PortfolioPage(PortfolioService *service, TradeSimulationService *
             m_service->remove(id);
         }
     });
-    connect(refreshBtn, &QPushButton::clicked, m_service, &PortfolioService::refreshPrices);
+    connect(refreshBtn, &QPushButton::clicked, this, [this]() {
+        m_loading->show();
+        m_service->refreshPrices();
+    });
     connect(buyBtn, &QPushButton::clicked, this, [this]() { openTrade(true); });
     connect(sellBtn, &QPushButton::clicked, this, [this]() { openTrade(false); });
     connect(recordsBtn, &QPushButton::clicked, this, &PortfolioPage::showTrades);
@@ -95,6 +135,11 @@ PortfolioPage::PortfolioPage(PortfolioService *service, TradeSimulationService *
         }
     });
     connect(m_service, &PortfolioService::portfolioChanged, this, &PortfolioPage::reload);
+}
+
+void PortfolioPage::updateEmptyState(bool empty) {
+    auto *stack = qobject_cast<QStackedWidget *>(layout()->itemAt(0)->widget());
+    if (stack) stack->setCurrentIndex(empty ? 1 : 0);
 }
 
 void PortfolioPage::openTrade(bool buy) {
@@ -214,6 +259,7 @@ void PortfolioPage::reload() {
                             new QStandardItem(value), pnlItem, new QStandardItem(pnlPct)});
     }
     const PortfolioSummary s = m_service->summary();
+    m_loading->hide();
     m_summary->setText(QStringLiteral("总市值 %5%1  ·  总成本 %5%2  ·  盈亏 %5%3 (%4%)")
                            .arg(s.totalMarketValue, 0, 'f', 2)
                            .arg(s.totalCost, 0, 'f', 2)
@@ -224,6 +270,7 @@ void PortfolioPage::reload() {
                           ? QStringLiteral("有 %1 项缺少市价数据，已从汇总中排除")
                                 .arg(s.missingPriceCount)
                           : QStringLiteral("共 %1 项").arg(s.itemCount));
+    updateEmptyState(s.itemCount == 0);
 }
 
 void PortfolioPage::addEdit(int editId) {

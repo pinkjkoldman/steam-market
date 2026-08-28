@@ -48,6 +48,8 @@ struct InventoryGroup {
     QStringList assetIds;
     int inventoryQuantity = 0;
     int selectedQuantity = 0;
+    bool marketable = false;
+    bool tradable = false;
 };
 
 struct ListingDraftLine {

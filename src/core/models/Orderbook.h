@@ -17,6 +17,7 @@ struct Orderbook {
     QVector<OrderbookEntry> sellOrders;
     double highestBuy = -1.0;
     double lowestSell = -1.0;
+    int steamCurrencyId = 0;
     QDateTime fetchedAt;
     bool stale = false;
 };

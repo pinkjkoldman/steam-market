@@ -12,6 +12,11 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $release = "$root\release"
 $stage = "$release\SteamMarketTerminal"
+$assetsDir = "$root\packaging"
+
+if (-not (Test-Path -LiteralPath $release -PathType Container)) {
+    New-Item -ItemType Directory -Path $release | Out-Null
+}
 
 if (-not $SkipBuild) {
     Push-Location "$root\src"
@@ -26,10 +31,15 @@ if (-not $SkipBuild) {
 }
 
 # Recreate a clean staging dir (guard against path escapes).
-if (-not $stage.StartsWith($release + '\')) {
+if ([System.IO.Path]::GetFullPath($stage) -ne
+    [System.IO.Path]::GetFullPath((Join-Path $release 'SteamMarketTerminal'))) {
     throw "Stage path out of scope: $stage"
 }
-if (Test-Path $stage) {
+if (Test-Path -LiteralPath $stage) {
+    $stageItem = Get-Item -LiteralPath $stage -Force
+    if (($stageItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Refusing to replace reparse-point stage: $stage"
+    }
     Remove-Item -LiteralPath $stage -Recurse -Force
 }
 New-Item -ItemType Directory -Path $stage | Out-Null
@@ -55,27 +65,38 @@ Get-ChildItem "$stage\sqldrivers" -Filter '*.dll' |
     Where-Object { $_.Name -ne 'qsqlite.dll' } |
     Remove-Item -Force
 
-# Bundle user docs (txt/csv kept at release root as packaging assets).
-$assets = Get-ChildItem -LiteralPath $release -File | Where-Object {
+# Bundle user docs from a source-controlled directory.
+$assets = Get-ChildItem -LiteralPath $assetsDir -File | Where-Object {
     $_.Extension -in @('.txt', '.csv')
 }
 if ($assets.Count -lt 2) {
-    throw 'Packaging assets missing: keep a .txt usage note and a .csv price sample under release/'
+    throw 'Packaging assets missing: keep a .txt usage note and a .csv sample under packaging/'
 }
 $assets | Copy-Item -Destination $stage -Force
+
+# A release is valid only if it runs without Qt or MinGW on PATH and from another cwd.
+$runtimeSmoke = Join-Path $release 'runtime-verification.png'
+& "$root\scripts\verify_runtime.ps1" -AppDir $stage -SmokePath $runtimeSmoke
+if ($LASTEXITCODE -ne 0) { throw 'runtime verification failed' }
 
 # Build artifacts.
 Remove-Item -LiteralPath "$release\SteamMarketTerminal-portable.zip", "$release\SteamMarketTerminal-Setup.exe" `
     -Force -ErrorAction SilentlyContinue
-Push-Location $release
-try {
-    & $SevenZip a -tzip -y 'SteamMarketTerminal-portable.zip' '.\SteamMarketTerminal' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'zip failed' }
-    $sfxModule = Join-Path (Split-Path $SevenZip -Parent) '7z.sfx'
-    & $SevenZip a -t7z -y "-sfx$sfxModule" 'SteamMarketTerminal-Setup.exe' '.\SteamMarketTerminal' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'sfx failed' }
-} finally {
-    Pop-Location
+if (Test-Path -LiteralPath $SevenZip -PathType Leaf) {
+    Push-Location $release
+    try {
+        & $SevenZip a -tzip -y 'SteamMarketTerminal-portable.zip' '.\SteamMarketTerminal' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'zip failed' }
+        $sfxModule = Join-Path (Split-Path $SevenZip -Parent) '7z.sfx'
+        if (Test-Path -LiteralPath $sfxModule -PathType Leaf) {
+            & $SevenZip a -t7z -y "-sfx$sfxModule" 'SteamMarketTerminal-Setup.exe' '.\SteamMarketTerminal' | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'sfx failed' }
+        }
+    } finally {
+        Pop-Location
+    }
+} else {
+    Compress-Archive -LiteralPath $stage -DestinationPath "$release\SteamMarketTerminal-portable.zip"
 }
 
 Get-ChildItem $release -Filter 'SteamMarketTerminal-*' | Select-Object Name, Length, LastWriteTime

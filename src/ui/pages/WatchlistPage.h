@@ -5,6 +5,8 @@
 class QTableView;
 class QStandardItemModel;
 class QLabel;
+class QFrame;
+class LoadingOverlay;
 class WatchlistService;
 class AlertService;
 
@@ -21,10 +23,17 @@ signals:
 private:
     void reload();
     void setupAlertForSelected();
+    void updateEmptyState(bool empty);
 
     WatchlistService *m_watchlist = nullptr;
     AlertService *m_alerts = nullptr;
     QTableView *m_table = nullptr;
     QStandardItemModel *m_model = nullptr;
     QLabel *m_status = nullptr;
+    QFrame *m_card = nullptr;
+    QWidget *m_emptyState = nullptr;
+    QLabel *m_emptyIcon = nullptr;
+    QLabel *m_emptyTitle = nullptr;
+    QLabel *m_emptySubtitle = nullptr;
+    LoadingOverlay *m_loading = nullptr;
 };

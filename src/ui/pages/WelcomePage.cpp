@@ -56,6 +56,11 @@ WelcomePage::WelcomePage(QWidget *parent) : QWidget(parent) {
 
   auto *footer = new QHBoxLayout();
   m_rememberGuest = new QCheckBox(QStringLiteral("下次直接以游客模式进入"), this);
+  m_rememberGuest->setStyleSheet(QStringLiteral(
+      "QCheckBox { color:#A9B8C7; spacing:8px; }"
+      "QCheckBox::indicator { width:16px; height:16px; border:1px solid #59708D; "
+      "border-radius:3px; background:#07111F; }"
+      "QCheckBox::indicator:checked { background:#126B9F; border-color:#53B5F4; }"));
   auto *privacy = new QLabel(
       QStringLiteral("登录仅在 Steam 官方页面完成，应用不接收或保存密码。可随时切换。"), this);
   privacy->setObjectName(QStringLiteral("mutedText"));
@@ -82,4 +87,3 @@ void WelcomePage::setLoginError(const QString &errorText) {
   m_loginCard->setBusy(false);
   m_loginCard->setErrorText(errorText);
 }
-

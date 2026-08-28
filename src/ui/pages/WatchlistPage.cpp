@@ -5,18 +5,21 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QTableView>
 #include <QVBoxLayout>
 
 #include "core/services/AlertService.h"
 #include "core/services/WatchlistService.h"
+#include "ui/widgets/LoadingOverlay.h"
 #include "utils/Currency.h"
 #include "utils/CurrencyProvider.h"
 #include "utils/ThemeProvider.h"
@@ -44,12 +47,49 @@ WatchlistPage::WatchlistPage(WatchlistService *watchlist, AlertService *alerts, 
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
 
     m_status = new QLabel(this);
-    auto *layout = new QVBoxLayout(this);
-    layout->addLayout(topRow);
-    layout->addWidget(m_table, 1);
-    layout->addWidget(m_status);
 
-    connect(refreshBtn, &QPushButton::clicked, m_watchlist, &WatchlistService::refreshAll);
+    m_card = new QFrame(this);
+    m_card->setObjectName(QStringLiteral("pageCard"));
+    auto *cardLayout = new QVBoxLayout(m_card);
+    cardLayout->setContentsMargins(16, 16, 16, 16);
+    cardLayout->setSpacing(12);
+    cardLayout->addLayout(topRow);
+    cardLayout->addWidget(m_table, 1);
+    cardLayout->addWidget(m_status);
+
+    m_emptyState = new QWidget(this);
+    auto *emptyLayout = new QVBoxLayout(m_emptyState);
+    emptyLayout->setAlignment(Qt::AlignCenter);
+    emptyLayout->setSpacing(8);
+    m_emptyIcon = new QLabel(QStringLiteral("⭐"), m_emptyState);
+    m_emptyIcon->setObjectName(QStringLiteral("emptyStateIcon"));
+    m_emptyIcon->setAlignment(Qt::AlignCenter);
+    m_emptyTitle = new QLabel(QStringLiteral("暂无自选物品"), m_emptyState);
+    m_emptyTitle->setObjectName(QStringLiteral("emptyStateTitle"));
+    m_emptyTitle->setAlignment(Qt::AlignCenter);
+    m_emptySubtitle = new QLabel(QStringLiteral("在详情页点击“加入自选”以跟踪价格"), m_emptyState);
+    m_emptySubtitle->setObjectName(QStringLiteral("emptyStateSubtitle"));
+    m_emptySubtitle->setAlignment(Qt::AlignCenter);
+    emptyLayout->addWidget(m_emptyIcon);
+    emptyLayout->addWidget(m_emptyTitle);
+    emptyLayout->addWidget(m_emptySubtitle);
+
+    auto *viewStack = new QStackedWidget(this);
+    viewStack->addWidget(m_card);
+    viewStack->addWidget(m_emptyState);
+
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(viewStack, 1);
+
+    m_loading = new LoadingOverlay(this);
+    m_loading->setText(QStringLiteral("正在刷新自选…"));
+
+    connect(refreshBtn, &QPushButton::clicked, this, [this]() {
+        m_loading->show();
+        m_watchlist->refreshAll();
+    });
     connect(removeBtn, &QPushButton::clicked, this, [this]() {
         const QModelIndex idx = m_table->currentIndex();
         if (!idx.isValid()) return;
@@ -71,9 +111,15 @@ WatchlistPage::WatchlistPage(WatchlistService *watchlist, AlertService *alerts, 
     connect(m_watchlist, &WatchlistService::listChanged, this, &WatchlistPage::reload);
     connect(m_watchlist, &WatchlistService::refreshFinished, this,
             [this](const QString &error) {
+        m_loading->hide();
         m_status->setText(error.isEmpty() ? QStringLiteral("已刷新")
                                           : QStringLiteral("部分刷新失败：%1").arg(error));
     });
+}
+
+void WatchlistPage::updateEmptyState(bool empty) {
+    auto *stack = qobject_cast<QStackedWidget *>(layout()->itemAt(0)->widget());
+    if (stack) stack->setCurrentIndex(empty ? 1 : 0);
 }
 
 void WatchlistPage::reload() {
@@ -104,6 +150,7 @@ void WatchlistPage::reload() {
     }
     m_status->setText(items.isEmpty() ? QStringLiteral("自选为空：在详情页点击“加入自选”")
                                       : QStringLiteral("共 %1 项").arg(items.size()));
+    updateEmptyState(items.isEmpty());
 }
 
 void WatchlistPage::setupAlertForSelected() {

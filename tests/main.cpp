@@ -13,6 +13,8 @@
 #include "test_portfolio.h"
 #include "test_trades.h"
 #include "test_inventory.h"
+#include "test_steam_history_parser.h"
+#include "test_steam_orderbook_parser.h"
 
 // 聚合运行全部测试类；任一失败返回非 0。
 int main(int argc, char *argv[]) {
@@ -56,5 +58,9 @@ int main(int argc, char *argv[]) {
     result |= run(&t10, "TestAccountEntry");
     TestFullMarket t11;
     result |= run(&t11, "TestFullMarket");
+    TestSteamHistoryParser t12;
+    result |= run(&t12, "TestSteamHistoryParser");
+    TestSteamOrderbookParser t13;
+    result |= run(&t13, "TestSteamOrderbookParser");
     return result;
 }

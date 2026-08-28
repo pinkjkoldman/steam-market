@@ -5,6 +5,8 @@
 class QTableView;
 class QStandardItemModel;
 class QLabel;
+class QFrame;
+class LoadingOverlay;
 class PortfolioService;
 class TradeSimulationService;
 
@@ -24,6 +26,7 @@ private:
     void addEdit(int editId);
     void openTrade(bool buy);
     void showTrades();
+    void updateEmptyState(bool empty);
 
     PortfolioService *m_service = nullptr;
     TradeSimulationService *m_trades = nullptr;
@@ -31,4 +34,10 @@ private:
     QStandardItemModel *m_model = nullptr;
     QLabel *m_summary = nullptr;
     QLabel *m_status = nullptr;
+    QFrame *m_card = nullptr;
+    QWidget *m_emptyState = nullptr;
+    QLabel *m_emptyIcon = nullptr;
+    QLabel *m_emptyTitle = nullptr;
+    QLabel *m_emptySubtitle = nullptr;
+    LoadingOverlay *m_loading = nullptr;
 };

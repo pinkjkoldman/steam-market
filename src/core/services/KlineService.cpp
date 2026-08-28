@@ -3,6 +3,9 @@
 #include <QDate>
 #include <QDateTime>
 
+#include <algorithm>
+#include <cmath>
+
 #include "data/repositories/PriceRepository.h"
 
 KlineService::KlineService(PriceRepository *prices, QObject *parent)
@@ -11,29 +14,51 @@ KlineService::KlineService(PriceRepository *prices, QObject *parent)
 QVector<KlineBar> KlineService::dailyBars(const QString &marketHashName, int appid,
                                           const QString &currency,
                                           int maxDays) const {
+    return barsFromPoints(m_prices->history(marketHashName, appid, currency), maxDays);
+}
+
+QVector<KlineBar> KlineService::barsFromPoints(const QVector<PricePoint> &points,
+                                               int maxDays) const {
     QVector<KlineBar> bars;
+    QVector<PricePoint> ordered;
+    ordered.reserve(points.size());
+    for (const PricePoint &point : points) {
+        if (point.recordedAt.isValid() && std::isfinite(point.price) && point.price > 0.0) {
+            ordered.append(point);
+        }
+    }
+    std::sort(ordered.begin(), ordered.end(),
+              [](const PricePoint &left, const PricePoint &right) {
+                  return left.recordedAt < right.recordedAt;
+              });
+
     QDate cutoff;
     if (maxDays > 0) {
         cutoff = QDate::currentDate().addDays(-maxDays);
     }
-    const QVector<PricePoint> points = m_prices->history(marketHashName, appid, currency);
-    for (const PricePoint &p : points) {
-        const QDate day = p.recordedAt.date();
+    for (const PricePoint &p : ordered) {
+        const QDate day = p.recordedAt.toLocalTime().date();
         if (cutoff.isValid() && day < cutoff) continue;
         if (bars.isEmpty() || bars.last().date != day) {
             KlineBar bar;
             bar.date = day;
             bar.open = bar.high = bar.low = bar.close = p.price;
-            bar.volume = p.volume;
-            bar.amount = p.price * p.volume;
+            bar.hasVolume = p.hasVolume;
+            if (p.hasVolume) {
+                bar.volume = p.volume;
+                bar.amount = p.price * p.volume;
+            }
             bars.append(bar);
         } else {
             KlineBar &bar = bars.last();
             bar.high = qMax(bar.high, p.price);
             bar.low = qMin(bar.low, p.price);
             bar.close = p.price;
-            bar.volume += p.volume;
-            bar.amount += p.price * p.volume;
+            if (p.hasVolume) {
+                bar.hasVolume = true;
+                bar.volume += p.volume;
+                bar.amount += p.price * p.volume;
+            }
         }
     }
     applyMovingAverages(bars);

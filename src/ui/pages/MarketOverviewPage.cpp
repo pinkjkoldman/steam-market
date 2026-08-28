@@ -17,6 +17,7 @@
 
 #include "ui/widgets/QuickInspector.h"
 #include "ui/widgets/ScopeNotice.h"
+#include "ui/widgets/LoadingOverlay.h"
 #include "ui/widgets/WorkbenchTheme.h"
 #include "utils/Currency.h"
 
@@ -62,18 +63,21 @@ MarketOverviewPage::MarketOverviewPage(QWidget *parent) : QWidget(parent) {
   root->setContentsMargins(32, 24, 32, 24);
   root->setSpacing(16);
 
-  auto *header = new QHBoxLayout();
   auto *heading = new QVBoxLayout();
   auto *title = new QLabel(QStringLiteral("市场概览"), this);
   title->setObjectName(QStringLiteral("pageTitle"));
   auto *subtitle = new QLabel(QStringLiteral("Steam 当前可检索全市场规模与热门挂单"), this);
   subtitle->setObjectName(QStringLiteral("pageSubtitle"));
+  subtitle->setWordWrap(true);
   heading->addWidget(title);
   heading->addWidget(subtitle);
+  root->addLayout(heading);
+
+  auto *searchRow = new QHBoxLayout();
   m_search = new QLineEdit(this);
   m_search->setPlaceholderText(QStringLiteral("搜索 Steam 全市场"));
   m_search->setClearButtonEnabled(true);
-  m_search->setMinimumWidth(280);
+  m_search->setMinimumWidth(180);
   m_game = new QComboBox(this);
   m_game->addItem(QStringLiteral("Steam 全站"), 0);
   m_game->addItem(QStringLiteral("Counter-Strike 2"), 730);
@@ -82,11 +86,10 @@ MarketOverviewPage::MarketOverviewPage(QWidget *parent) : QWidget(parent) {
   m_game->addItem(QStringLiteral("Steam 社区物品"), 753);
   m_browse = new QPushButton(QStringLiteral("浏览全部"), this);
   m_browse->setObjectName(QStringLiteral("primaryButton"));
-  header->addLayout(heading, 1);
-  header->addWidget(m_search);
-  header->addWidget(m_game);
-  header->addWidget(m_browse);
-  root->addLayout(header);
+  searchRow->addWidget(m_search, 1);
+  searchRow->addWidget(m_game);
+  searchRow->addWidget(m_browse);
+  root->addLayout(searchRow);
 
   auto *kpis = new QGridLayout();
   kpis->setHorizontalSpacing(12);
@@ -163,6 +166,9 @@ MarketOverviewPage::MarketOverviewPage(QWidget *parent) : QWidget(parent) {
 
   m_notice = new ScopeNotice(this);
   root->addWidget(m_notice);
+
+  m_loading = new LoadingOverlay(this);
+  m_loading->setText(QStringLiteral("正在加载市场概览…"));
 
   connect(m_search, &QLineEdit::returnPressed, this, &MarketOverviewPage::requestCurrentScope);
   connect(m_game, qOverload<int>(&QComboBox::currentIndexChanged), this,
@@ -250,6 +256,8 @@ void MarketOverviewPage::setPopularPage(const MarketCatalogPageView &page) {
 void MarketOverviewPage::setStatus(const MarketUiStatus &status) {
   m_notice->setStatus(status);
   m_browse->setEnabled(status.state != MarketViewState::Loading);
+  if (status.state == MarketViewState::Loading) m_loading->show();
+  else m_loading->hide();
 }
 
 void MarketOverviewPage::setInspection(const MarketInspectionView &inspection) {
@@ -297,4 +305,3 @@ void MarketOverviewPage::activateCurrentRow() {
 QString MarketOverviewPage::scopeLabel() const {
   return m_game->currentData().toInt() == 0 ? QStringLiteral("全站") : m_game->currentText();
 }
-

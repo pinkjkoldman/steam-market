@@ -1,10 +1,15 @@
 #include "ui/pages/InventoryAssistantPage.h"
 
 #include <QCheckBox>
+#include <QColor>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSpinBox>
@@ -13,11 +18,17 @@
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QUrl>
+#include <QVBoxLayout>
+
+#include <algorithm>
 
 #include "core/services/InventoryService.h"
 #include "core/services/MultiSellHandoffService.h"
 #include "core/services/PricingDraftService.h"
 #include "core/services/SteamSessionService.h"
+#include "core/services/TradeHandoffService.h"
+#include "ui/widgets/WorkbenchTheme.h"
+#include "ui/widgets/LoadingOverlay.h"
 
 namespace {
 QString categoryText(const QString &category) {
@@ -41,6 +52,8 @@ InventoryAssistantPage::InventoryAssistantPage(
     PricingDraftService *pricing, MultiSellHandoffService *handoff, QWidget *parent)
     : QWidget(parent), m_session(session), m_inventory(inventory), m_pricing(pricing),
       m_handoff(handoff) {
+    setProperty("workbench", true);
+    setStyleSheet(WorkbenchTheme::styleSheet());
     buildUi();
     wireSignals();
 }
@@ -99,6 +112,43 @@ void InventoryAssistantPage::wireSignals() {
             updateSummary();
         }
     });
+    connect(m_singleListingButton, &QPushButton::clicked, this, [this]() {
+        openSingleListingForRow(m_table->currentRow());
+    });
+    connect(m_tradeButton, &QPushButton::clicked, this, [this]() {
+        openTradeForRow(m_table->currentRow());
+    });
+    connect(m_table, &QTableWidget::cellDoubleClicked, this,
+            [this](int row, int) { requestHistoryForRow(row); });
+    connect(m_table, &QTableWidget::currentCellChanged, this,
+            [this](int, int, int, int) { updateSingleItemActions(); });
+    connect(m_table, &QTableWidget::customContextMenuRequested, this,
+            [this](const QPoint &position) {
+        const QModelIndex index = m_table->indexAt(position);
+        if (!index.isValid()) return;
+        m_table->selectRow(index.row());
+        QMenu menu(m_table);
+        QAction *historyAction = menu.addAction(QStringLiteral("查看历史趋势"));
+        menu.addSeparator();
+        QAction *listingAction = menu.addAction(QStringLiteral("上架此物品到 Steam 市场"));
+        QAction *tradeAction = menu.addAction(QStringLiteral("与 Steam 用户交易此物品"));
+        const int groupIndex = groupIndexForRow(index.row());
+        const bool validGroup = groupIndex >= 0 && groupIndex < m_groups.size();
+        historyAction->setEnabled(groupIndex >= 0 && groupIndex < m_groups.size()
+                                  && !m_groups.at(groupIndex).marketHashName.trimmed().isEmpty());
+        listingAction->setEnabled(validGroup && m_authenticated
+                                  && m_groups.at(groupIndex).marketable);
+        tradeAction->setEnabled(validGroup && m_authenticated
+                                && m_groups.at(groupIndex).tradable);
+        QAction *selectedAction = menu.exec(m_table->viewport()->mapToGlobal(position));
+        if (selectedAction == historyAction) {
+            requestHistoryForRow(index.row());
+        } else if (selectedAction == listingAction) {
+            openSingleListingForRow(index.row());
+        } else if (selectedAction == tradeAction) {
+            openTradeForRow(index.row());
+        }
+    });
 
     connect(m_session, &SteamSessionService::sessionChanged, this,
             &InventoryAssistantPage::onSessionChanged);
@@ -106,23 +156,33 @@ void InventoryAssistantPage::wireSignals() {
             [this](const QString &message) { setOperationStatus(message, true); });
     connect(m_inventory, &InventoryService::syncProgress, this,
             [this](int pages, int assets) {
+        m_syncButton->setText(pages == 0 ? QStringLiteral("连接中…")
+                                         : QStringLiteral("同步中 · %1 页").arg(pages));
         setOperationStatus(QStringLiteral("正在同步：%1 页，已读取 %2 个库存资产…")
                                .arg(pages)
                                .arg(assets));
     });
     connect(m_inventory, &InventoryService::syncCompleted, this,
             [this](const QVector<InventoryGroup> &groups) {
+        m_syncButton->setText(QStringLiteral("同步库存"));
         m_syncButton->setEnabled(true);
         m_cancelButton->setEnabled(false);
+        m_loading->hide();
         populateGroups(groups);
+        const int marketableCount = static_cast<int>(std::count_if(
+            groups.cbegin(), groups.cend(),
+            [](const InventoryGroup &group) { return group.marketable; }));
         setOperationStatus(groups.isEmpty()
-                               ? QStringLiteral("同步成功，但此分类没有可在市场出售的物品。可切换库存来源后重试。")
-                               : QStringLiteral("同步完成：已加载 %1 组可出售物品。").arg(groups.size()));
+                               ? QStringLiteral("同步成功，但此库存分类没有物品。可切换库存来源后重试。")
+                               : QStringLiteral("同步完成：共 %1 组物品，其中 %2 组可在市场出售。")
+                                     .arg(groups.size()).arg(marketableCount));
     });
     connect(m_inventory, &InventoryService::syncFailed, this,
             [this](const QString &message) {
+        m_syncButton->setText(QStringLiteral("重新同步"));
         m_syncButton->setEnabled(m_session->hasSession());
         m_cancelButton->setEnabled(false);
+        m_loading->hide();
         loadCachedInventory();
         setOperationStatus(QStringLiteral("同步失败：%1  已保留上次成功的库存。")
                                .arg(message), true);
@@ -137,6 +197,8 @@ void InventoryAssistantPage::onSessionChanged(bool authenticated, const QString 
     m_logoutButton->setEnabled(connected);
     m_openInventoryButton->setEnabled(connected);
     m_syncButton->setEnabled(connected && !m_inventory->isSyncing());
+    updateSingleItemActions();
+    updateSummary();
     if (!connected) {
         m_accountBadge->setText(QStringLiteral("未连接 Steam"));
         m_accountBadge->setProperty("state", QStringLiteral("disconnected"));
@@ -180,8 +242,10 @@ void InventoryAssistantPage::startSync() {
     if (m_inventory->isSyncing()) return;
     const auto context = currentContext();
     resetHandoff();
+    m_syncButton->setText(QStringLiteral("连接中…"));
     m_syncButton->setEnabled(false);
     m_cancelButton->setEnabled(true);
+    m_loading->show();
     setOperationStatus(QStringLiteral("正在连接 Steam 库存…"));
     m_inventory->sync(m_session->steamId(), context.first, context.second);
 }
@@ -207,12 +271,44 @@ void InventoryAssistantPage::populateGroups(const QVector<InventoryGroup> &group
         auto *check = new QTableWidgetItem();
         check->setCheckState(Qt::Unchecked);
         check->setData(Qt::UserRole, row);
+        check->setToolTip(group.marketable
+                              ? QStringLiteral("勾选后可加入出售计划")
+                              : QStringLiteral("Steam 标记为不可在市场出售，不能选择"));
+        if (!group.marketable) {
+            check->setFlags(check->flags() & ~Qt::ItemIsUserCheckable);
+        }
         m_table->setItem(row, 0, check);
         auto *name = new QTableWidgetItem(group.displayName);
-        name->setToolTip(group.marketHashName);
+        name->setToolTip(group.marketHashName.trimmed().isEmpty()
+                             ? QStringLiteral("此物品没有 Steam 市场页面")
+                             : QStringLiteral("市场名称：%1\n双击或右键查看历史趋势")
+                                   .arg(group.marketHashName));
         m_table->setItem(row, 1, name);
         m_table->setItem(row, 2, new QTableWidgetItem(categoryText(group.category)));
         m_table->setItem(row, 3, new QTableWidgetItem(QString::number(group.inventoryQuantity)));
+
+        auto *tradable = new QTableWidgetItem(group.tradable
+                                                   ? QStringLiteral("可交易")
+                                                   : QStringLiteral("不可交易"));
+        tradable->setToolTip(group.tradable
+                                 ? QStringLiteral("可与其他 Steam 用户进行物品交易")
+                                 : QStringLiteral("Steam 当前标记为不可交易，可能受物品规则或交易锁定限制"));
+        tradable->setForeground(QColor(group.tradable ? QStringLiteral("#66D9A8")
+                                                      : QStringLiteral("#F3B95F")));
+        tradable->setTextAlignment(Qt::AlignCenter);
+        m_table->setItem(row, 4, tradable);
+
+        auto *marketable = new QTableWidgetItem(group.marketable
+                                                     ? QStringLiteral("可出售")
+                                                     : QStringLiteral("不可出售"));
+        marketable->setToolTip(group.marketable
+                                   ? QStringLiteral("可进入出售计划，并交接到 Steam 官方市场确认")
+                                   : QStringLiteral("Steam 当前标记为不可在社区市场出售"));
+        marketable->setForeground(QColor(group.marketable ? QStringLiteral("#66D9A8")
+                                                          : QStringLiteral("#F17878")));
+        marketable->setTextAlignment(Qt::AlignCenter);
+        m_table->setItem(row, 5, marketable);
+
         auto *quantity = new QSpinBox(m_table);
         quantity->setRange(1, qMax(1, qMin(group.inventoryQuantity, group.assetIds.size())));
         quantity->setValue(quantity->maximum());
@@ -221,19 +317,154 @@ void InventoryAssistantPage::populateGroups(const QVector<InventoryGroup> &group
             resetHandoff();
             updateSummary();
         });
-        m_table->setCellWidget(row, 4, quantity);
-        m_table->setItem(row, 5, new QTableWidgetItem(QStringLiteral("可交接")));
+        m_table->setCellWidget(row, 6, quantity);
+
+        auto *history = new QTableWidgetItem(group.marketHashName.trimmed().isEmpty()
+                                                  ? QStringLiteral("无市场页")
+                                                  : QStringLiteral("双击查看"));
+        history->setTextAlignment(Qt::AlignCenter);
+        history->setForeground(QColor(group.marketHashName.trimmed().isEmpty()
+                                          ? QStringLiteral("#718397")
+                                          : QStringLiteral("#8CD2FF")));
+        history->setToolTip(group.marketHashName.trimmed().isEmpty()
+                                ? QStringLiteral("Steam 未提供市场名称，无法查询历史趋势")
+                                : QStringLiteral("双击当前行，或右键选择“查看历史趋势”"));
+        m_table->setItem(row, 7, history);
         m_table->setRowHeight(row, 36);
     }
     m_table->blockSignals(false);
     resetHandoff();
     applyFilter();
     updateSummary();
+    updateSingleItemActions();
+}
+
+int InventoryAssistantPage::groupIndexForRow(int row) const {
+    if (row < 0 || row >= m_table->rowCount()) return -1;
+    const QTableWidgetItem *item = m_table->item(row, 0);
+    if (!item) return -1;
+    const int groupIndex = item->data(Qt::UserRole).toInt();
+    return groupIndex >= 0 && groupIndex < m_groups.size() ? groupIndex : -1;
+}
+
+void InventoryAssistantPage::updateSingleItemActions() {
+    const int groupIndex = groupIndexForRow(m_table ? m_table->currentRow() : -1);
+    const bool valid = groupIndex >= 0;
+    if (m_singleListingButton) {
+        m_singleListingButton->setEnabled(valid && m_authenticated
+                                          && m_groups.at(groupIndex).marketable);
+    }
+    if (m_tradeButton) {
+        m_tradeButton->setEnabled(valid && m_authenticated
+                                  && m_groups.at(groupIndex).tradable);
+    }
+}
+
+void InventoryAssistantPage::openSingleListingForRow(int row) {
+    const int groupIndex = groupIndexForRow(row);
+    if (groupIndex < 0) {
+        setOperationStatus(QStringLiteral("请先在库存表中选中一个物品。"), true);
+        return;
+    }
+    if (!m_authenticated) {
+        setOperationStatus(QStringLiteral("单品上架需要先完成 Steam 官方登录。"), true);
+        return;
+    }
+    const InventoryGroup &group = m_groups.at(groupIndex);
+    TradeHandoffService handoff;
+    QString error;
+    const QUrl url = handoff.createSingleListingUrl(group, m_session->steamId(), &error);
+    if (url.isEmpty()) {
+        setOperationStatus(error, true);
+        return;
+    }
+    const QString prompt = QStringLiteral(
+        "即将在 Steam 官方页面打开“%1”。\n\n"
+        "应用不会自动填写价格、提交上架或确认 Steam Guard，请您在官方页面核对。")
+                               .arg(group.displayName);
+    if (QMessageBox::question(this, QStringLiteral("单品上架"), prompt)
+        != QMessageBox::Yes) {
+        return;
+    }
+    m_session->openOfficialUrl(url);
+    setOperationStatus(QStringLiteral("已打开 Steam 官方上架页面：%1。请手动核对价格并确认。")
+                           .arg(group.displayName));
+}
+
+void InventoryAssistantPage::openTradeForRow(int row) {
+    const int groupIndex = groupIndexForRow(row);
+    if (groupIndex < 0) {
+        setOperationStatus(QStringLiteral("请先在库存表中选中一个物品。"), true);
+        return;
+    }
+    if (!m_authenticated) {
+        setOperationStatus(QStringLiteral("用户交易需要先完成 Steam 官方登录。"), true);
+        return;
+    }
+    const InventoryGroup &group = m_groups.at(groupIndex);
+    if (!group.tradable) {
+        setOperationStatus(QStringLiteral("Steam 当前将该物品标记为不可交易。"), true);
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("选择 Steam 交易用户"));
+    dialog.setMinimumWidth(560);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *form = new QFormLayout();
+    auto *item = new QLabel(group.displayName, &dialog);
+    item->setWordWrap(true);
+    auto *partner = new QLineEdit(&dialog);
+    partner->setPlaceholderText(
+        QStringLiteral("留空则在 Steam 选择好友，或输入 17 位 SteamID64 / 官方交易链接"));
+    partner->setClearButtonEnabled(true);
+    form->addRow(QStringLiteral("交易物品"), item);
+    form->addRow(QStringLiteral("交易对象"), partner);
+    layout->addLayout(form);
+    auto *notice = new QLabel(
+        QStringLiteral("应用只负责打开通过校验的 Steam 官方报价页面；交易 token 不会保存或写入日志。"
+                       "进入 Steam 后请手动选择该物品并完成最终确认。"),
+        &dialog);
+    notice->setObjectName(QStringLiteral("mutedText"));
+    notice->setWordWrap(true);
+    layout->addWidget(notice);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Open | QDialogButtonBox::Cancel,
+                                         &dialog);
+    buttons->button(QDialogButtonBox::Open)->setText(QStringLiteral("打开 Steam 交易页"));
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    TradeHandoffService handoff;
+    QString error;
+    const QUrl url = handoff.createTradeOfferUrl(partner->text(), &error);
+    if (url.isEmpty()) {
+        setOperationStatus(error, true);
+        return;
+    }
+    m_session->openOfficialUrl(url);
+    setOperationStatus(QStringLiteral("已打开 Steam 官方交易报价页面。请选择“%1”并手动确认对方身份。")
+                           .arg(group.displayName));
+}
+
+void InventoryAssistantPage::requestHistoryForRow(int row) {
+    QTableWidgetItem *check = m_table->item(row, 0);
+    if (!check) return;
+    const int groupIndex = check->data(Qt::UserRole).toInt();
+    if (groupIndex < 0 || groupIndex >= m_groups.size()) return;
+    const InventoryGroup &group = m_groups.at(groupIndex);
+    if (group.marketHashName.trimmed().isEmpty()) {
+        setOperationStatus(QStringLiteral("此物品缺少市场名称，暂时无法打开历史趋势。"), true);
+        return;
+    }
+    emit historyRequested(group.marketHashName, group.appid);
 }
 
 void InventoryAssistantPage::applyFilter() {
     const QString query = m_filter->text().trimmed();
     int visibleCount = 0;
+    int visibleMarketableCount = 0;
     for (int row = 0; row < m_groups.size(); ++row) {
         const InventoryGroup &group = m_groups.at(row);
         const bool queryMatches = query.isEmpty()
@@ -243,9 +474,14 @@ void InventoryAssistantPage::applyFilter() {
                                      || group.category == QLatin1String("trading_card");
         const bool visible = queryMatches && categoryMatches;
         m_table->setRowHidden(row, !visible);
-        if (visible) ++visibleCount;
+        if (visible) {
+            ++visibleCount;
+            if (group.marketable) ++visibleMarketableCount;
+        }
     }
-    m_selectionStatus->setText(QStringLiteral("显示 %1 / %2 组物品").arg(visibleCount).arg(m_groups.size()));
+    m_selectionStatus->setText(
+        QStringLiteral("显示 %1 / %2 组物品 · 当前可见中 %3 组可出售")
+            .arg(visibleCount).arg(m_groups.size()).arg(visibleMarketableCount));
 }
 
 void InventoryAssistantPage::selectVisible(bool duplicatesOnly) {
@@ -253,9 +489,10 @@ void InventoryAssistantPage::selectVisible(bool duplicatesOnly) {
     for (int row = 0; row < m_table->rowCount(); ++row) {
         if (m_table->isRowHidden(row)) continue;
         const InventoryGroup &group = m_groups.at(row);
-        const bool selected = !duplicatesOnly || group.inventoryQuantity > 1;
+        const bool selected = group.marketable
+                              && (!duplicatesOnly || group.inventoryQuantity > 1);
         m_table->item(row, 0)->setCheckState(selected ? Qt::Checked : Qt::Unchecked);
-        if (auto *quantity = qobject_cast<QSpinBox *>(m_table->cellWidget(row, 4))) {
+        if (auto *quantity = qobject_cast<QSpinBox *>(m_table->cellWidget(row, 6))) {
             quantity->setEnabled(selected);
             quantity->setValue(duplicatesOnly && selected
                                    ? qMin(quantity->maximum(), group.inventoryQuantity - 1)
@@ -271,7 +508,7 @@ void InventoryAssistantPage::clearSelection() {
     m_table->blockSignals(true);
     for (int row = 0; row < m_table->rowCount(); ++row) {
         m_table->item(row, 0)->setCheckState(Qt::Unchecked);
-        if (auto *quantity = qobject_cast<QSpinBox *>(m_table->cellWidget(row, 4))) {
+        if (auto *quantity = qobject_cast<QSpinBox *>(m_table->cellWidget(row, 6))) {
             quantity->setEnabled(false);
         }
     }
@@ -288,7 +525,8 @@ QVector<InventoryGroup> InventoryAssistantPage::selectedGroups() const {
         const int groupIndex = check->data(Qt::UserRole).toInt();
         if (groupIndex < 0 || groupIndex >= m_groups.size()) continue;
         InventoryGroup group = m_groups.at(groupIndex);
-        if (auto *quantity = qobject_cast<QSpinBox *>(m_table->cellWidget(row, 4))) {
+        if (!group.marketable) continue;
+        if (auto *quantity = qobject_cast<QSpinBox *>(m_table->cellWidget(row, 6))) {
             group.selectedQuantity = quantity->value();
         }
         selected.append(group);
@@ -305,17 +543,34 @@ void InventoryAssistantPage::updateSummary() {
     const qint64 totalBuyer = buyerPaysMinor * itemCount;
     const qint64 totalReceive = receiveMinor * itemCount;
     const qint64 totalFee = totalBuyer - totalReceive;
-    m_summary->setText(
-        QStringLiteral("%1 组 / %2 件 · 买家合计 ¥%3 · 预计实收 ¥%4 · 预计手续费 ¥%5")
-            .arg(selected.size())
-            .arg(itemCount)
-            .arg(totalBuyer / 100.0, 0, 'f', 2)
-            .arg(totalReceive / 100.0, 0, 'f', 2)
-            .arg(totalFee / 100.0, 0, 'f', 2));
-    m_handoffButton->setEnabled(!selected.isEmpty() && m_session->hasSession());
+    if (!m_authenticated) {
+        m_summary->setText(QStringLiteral("登录 Steam 后可批量上架 · 当前已选 %1 组 / %2 件")
+                               .arg(selected.size()).arg(itemCount));
+        m_handoffButton->setToolTip(QStringLiteral("批量上架需要先完成 Steam 官方登录"));
+    } else if (selected.isEmpty()) {
+        m_summary->setText(QStringLiteral("请在下方表格第一列勾选多个可出售物品"));
+        m_handoffButton->setToolTip(QStringLiteral("请先勾选至少一个可出售物品"));
+    } else {
+        m_summary->setText(
+            QStringLiteral("%1 组 / %2 件 · 买家合计 ¥%3 · 预计实收 ¥%4 · 手续费 ¥%5")
+                .arg(selected.size())
+                .arg(itemCount)
+                .arg(totalBuyer / 100.0, 0, 'f', 2)
+                .arg(totalReceive / 100.0, 0, 'f', 2)
+                .arg(totalFee / 100.0, 0, 'f', 2));
+        m_handoffButton->setToolTip(
+            QStringLiteral("检查已选物品并分批打开 Steam 官方批量出售页面"));
+    }
+    m_handoffButton->setEnabled(!selected.isEmpty() && m_authenticated);
+    if (m_batches.isEmpty()) {
+        m_handoffButton->setText(itemCount > 0
+                                     ? QStringLiteral("批量上架已选（%1 件）").arg(itemCount)
+                                     : QStringLiteral("批量上架已选物品"));
+    }
     for (int row = 0; row < m_table->rowCount(); ++row) {
-        if (auto *quantity = qobject_cast<QSpinBox *>(m_table->cellWidget(row, 4))) {
-            quantity->setEnabled(m_table->item(row, 0)->checkState() == Qt::Checked);
+        if (auto *quantity = qobject_cast<QSpinBox *>(m_table->cellWidget(row, 6))) {
+            quantity->setEnabled(m_groups.at(row).marketable
+                                 && m_table->item(row, 0)->checkState() == Qt::Checked);
         }
     }
 }
@@ -324,11 +579,15 @@ void InventoryAssistantPage::resetHandoff() {
     m_batches.clear();
     m_nextBatchIndex = 0;
     if (m_handoffButton) {
-        m_handoffButton->setText(QStringLiteral("检查并打开 Steam 官方页面"));
+        m_handoffButton->setText(QStringLiteral("批量上架已选物品"));
     }
 }
 
 void InventoryAssistantPage::prepareHandoff() {
+    if (!m_authenticated) {
+        setOperationStatus(QStringLiteral("批量上架需要先完成 Steam 官方登录。"), true);
+        return;
+    }
     QString error;
     const QVector<ListingDraftLine> lines = m_pricing->createFixedPriceDraft(
         selectedGroups(), qRound64(m_price->value() * 100.0), &error);

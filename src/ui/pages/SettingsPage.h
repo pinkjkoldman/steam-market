@@ -7,6 +7,8 @@
 class QComboBox;
 class QSpinBox;
 class QCheckBox;
+class QLineEdit;
+class QLabel;
 class SettingsService;
 class QPushButton;
 class QDoubleSpinBox;
@@ -36,5 +38,9 @@ private:
     QDoubleSpinBox *m_feeGame = nullptr;
     QComboBox *m_game = nullptr;
     QComboBox *m_startupIdentity = nullptr;
+    QComboBox *m_proxyMode = nullptr;
+    QLineEdit *m_proxyHost = nullptr;
+    QSpinBox *m_proxyPort = nullptr;
+    QLabel *m_proxyHint = nullptr;
     QPushButton *m_backupBtn = nullptr;
 };

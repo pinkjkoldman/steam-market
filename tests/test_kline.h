@@ -8,4 +8,5 @@ class TestKline : public QObject {
 private slots:
     void dailyAggregation();
     void movingAverage();
+    void sortsPointsAndPreservesVolumeMeaning();
 };

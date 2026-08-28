@@ -1,5 +1,6 @@
 #include "ui/widgets/KlineChart.h"
 
+#include <QAbstractAxis>
 #include <QBarCategoryAxis>
 #include <QBarSeries>
 #include <QBarSet>
@@ -16,6 +17,7 @@
 
 KlineChart::KlineChart(QWidget *parent) : QWidget(parent) {
     m_chart = new QChart();
+    m_chart->setTheme(QChart::ChartThemeDark);
     m_chart->legend()->hide();
     m_chart->setBackgroundRoundness(6);
     m_view = new QChartView(m_chart, this);
@@ -32,9 +34,15 @@ void KlineChart::setBars(const QVector<KlineBar> &bars) {
 
 void KlineChart::rebuild() {
     m_chart->removeAllSeries();
+    const QList<QAbstractAxis *> axes = m_chart->axes();
+    for (QAbstractAxis *axis : axes) {
+        m_chart->removeAxis(axis);
+        delete axis;
+    }
     m_chart->setTitle(QString());
+    m_chart->legend()->hide();
     if (m_bars.size() < 2) {
-        m_chart->setTitle(QStringLiteral("K线数据不足，无法绘制"));
+        m_chart->setTitle(QStringLiteral("至少需要 2 个交易日历史点才能绘制日 K"));
         return;
     }
 
@@ -49,6 +57,8 @@ void KlineChart::rebuild() {
     auto *volBarSet = new QBarSet(QStringLiteral("成交量"));
     volBarSet->setColor(QColor(0x3D, 0x7E, 0xFF, 90));
     auto *volumeSeries = new QBarSeries();
+    bool hasVolume = false;
+    qint64 maxVolume = 0;
 
     auto *ma5Series = new QLineSeries();
     auto *ma10Series = new QLineSeries();
@@ -63,16 +73,24 @@ void KlineChart::rebuild() {
         auto *set = new QCandlestickSet(bar.open, bar.high, bar.low, bar.close);
         candles->append(set);
         volBarSet->append(bar.volume);
+        hasVolume = hasVolume || bar.hasVolume;
+        maxVolume = qMax(maxVolume, bar.volume);
         minPrice = qMin(minPrice, bar.low);
         maxPrice = qMax(maxPrice, bar.high);
         if (bar.ma5 > 0) ma5Series->append(i, bar.ma5);
         if (bar.ma10 > 0) ma10Series->append(i, bar.ma10);
         if (bar.ma20 > 0) ma20Series->append(i, bar.ma20);
     }
-    volumeSeries->append(volBarSet);
+    if (hasVolume) {
+        volumeSeries->append(volBarSet);
+    } else {
+        delete volumeSeries;
+        volumeSeries = nullptr;
+        delete volBarSet;
+    }
 
     m_chart->addSeries(candles);
-    m_chart->addSeries(volumeSeries);
+    if (volumeSeries) m_chart->addSeries(volumeSeries);
     m_chart->addSeries(ma5Series);
     m_chart->addSeries(ma10Series);
     m_chart->addSeries(ma20Series);
@@ -81,7 +99,7 @@ void KlineChart::rebuild() {
     axisX->append(categories);
     m_chart->addAxis(axisX, Qt::AlignBottom);
     candles->attachAxis(axisX);
-    volumeSeries->attachAxis(axisX);
+    if (volumeSeries) volumeSeries->attachAxis(axisX);
     ma5Series->attachAxis(axisX);
     ma10Series->attachAxis(axisX);
     ma20Series->attachAxis(axisX);
@@ -96,12 +114,17 @@ void KlineChart::rebuild() {
     ma10Series->attachAxis(axisY);
     ma20Series->attachAxis(axisY);
 
-    auto *axisY2 = new QValueAxis();
-    axisY2->setTitleText(QStringLiteral("成交量"));
-    m_chart->addAxis(axisY2, Qt::AlignRight);
-    volumeSeries->attachAxis(axisY2);
+    if (volumeSeries) {
+        auto *axisY2 = new QValueAxis();
+        axisY2->setTitleText(QStringLiteral("成交量"));
+        axisY2->setLabelFormat(QStringLiteral("%.0f"));
+        axisY2->setRange(0.0, qMax(1.0, static_cast<double>(maxVolume) * 1.15));
+        m_chart->addAxis(axisY2, Qt::AlignRight);
+        volumeSeries->attachAxis(axisY2);
+    }
 
     m_chart->legend()->setVisible(true);
     m_chart->legend()->setAlignment(Qt::AlignTop);
+    m_chart->setTitle(QStringLiteral("基于 Steam 官方历史点按本地日期聚合"));
     m_view->update();
 }

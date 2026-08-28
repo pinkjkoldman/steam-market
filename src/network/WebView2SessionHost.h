@@ -8,6 +8,7 @@ struct ICoreWebView2;
 struct ICoreWebView2Controller;
 struct ICoreWebView2Environment;
 class QDialog;
+class QLabel;
 class QWidget;
 
 class EnvironmentHandler;
@@ -24,6 +25,7 @@ public:
     ~WebView2SessionHost() override;
 
     void showLogin() override;
+    void dismissSurface() override;
     void openOfficialUrl(const QUrl &url) override;
     void clearSession() override;
     void prepareFreshLoginSession(
@@ -48,10 +50,12 @@ private:
     void finishFreshSessionPreparation(FreshSessionResult result);
     void onEnvironmentCreated(long result, ICoreWebView2Environment *environment);
     void onControllerCreated(long result, ICoreWebView2Controller *controller);
-    void onNavigationCompleted();
+    void onNavigationCompleted(bool success, long webErrorStatus);
+    void showSurfaceMessage(const QString &message);
     bool isAllowedNavigation(const QUrl &url) const;
 
     QDialog *m_dialog = nullptr;
+    QLabel *m_status = nullptr;
     QWidget *m_surface = nullptr;
     QLibrary m_loader;
     ICoreWebView2Environment *m_environment = nullptr;

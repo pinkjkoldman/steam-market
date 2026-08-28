@@ -33,9 +33,13 @@ SteamSessionService::SteamSessionService(IWebSessionHost *host,
     qRegisterMetaType<AccountError>();
     connect(host, &IWebSessionHost::sessionCookiesReady, this,
             &SteamSessionService::adoptCookies);
+    connect(host, &IWebSessionHost::surfaceClosedByUser, this, [this]() {
+        if (m_identity.state == IdentityState::Authenticating) cancelOfficialLogin();
+    });
     connect(host, &IWebSessionHost::hostError, this, [this](const QString &) {
         if (m_identity.state != IdentityState::Authenticating || !m_loginSurfaceOpen) return;
         ++m_generation;
+        m_host->dismissSurface();
         publish(m_loginOrigin);
         m_loginSurfaceOpen = false;
         emit loginSurfaceClosed();
@@ -63,6 +67,7 @@ AccountResult SteamSessionService::beginOfficialLogin() {
     m_host->prepareFreshLoginSession([this, generation](FreshSessionResult result) {
         if (generation != m_generation || m_identity.state != IdentityState::Authenticating) return;
         if (result != FreshSessionResult::Ready) {
+            m_host->dismissSurface();
             publish(m_loginOrigin);
             const bool unavailable = result == FreshSessionResult::Unavailable;
             reject(unavailable ? AccountErrorCode::WebViewUnavailable
@@ -85,6 +90,7 @@ AccountResult SteamSessionService::cancelOfficialLogin() {
                       QStringLiteral("account.error.invalid_transition"));
     }
     ++m_generation;
+    m_host->dismissSurface();
     publish(m_loginOrigin);
     m_loginSurfaceOpen = false;
     emit loginSurfaceClosed();
@@ -138,6 +144,7 @@ void SteamSessionService::openOfficialUrl(const QUrl &url) { m_host->openOfficia
 
 AccountResult SteamSessionService::logout() {
     ++m_generation;
+    m_host->dismissSurface();
     m_host->clearSession();
     clearNetworkCookies();
     publish({IdentityState::Guest, {}, {}, QStringLiteral("account.status.guest"), false});
@@ -172,6 +179,7 @@ void SteamSessionService::adoptCookies(const QString &steamId,
         }
     }
     ++m_generation;
+    m_host->dismissSurface();
     publish({IdentityState::Authenticated, resolvedSteamId,
              QStringLiteral("Steam %1").arg(resolvedSteamId.right(6)),
              QStringLiteral("account.status.authenticated"), false});

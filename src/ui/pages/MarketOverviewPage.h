@@ -12,6 +12,7 @@ class QStandardItemModel;
 class QTableView;
 class QuickInspector;
 class ScopeNotice;
+class LoadingOverlay;
 
 class MarketOverviewPage : public QWidget {
   Q_OBJECT
@@ -65,5 +66,6 @@ private:
   QPushButton *m_browse = nullptr;
   QuickInspector *m_inspector = nullptr;
   ScopeNotice *m_notice = nullptr;
+  LoadingOverlay *m_loading = nullptr;
 };
 

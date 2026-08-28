@@ -16,6 +16,7 @@ public:
     ~IWebSessionHost() override = default;
 
     virtual void showLogin() = 0;
+    virtual void dismissSurface() {}
     virtual void openOfficialUrl(const QUrl &url) = 0;
     virtual void clearSession() = 0;
     virtual void prepareFreshLoginSession(
@@ -26,4 +27,5 @@ public:
 signals:
     void sessionCookiesReady(const QString &steamId, const QList<QNetworkCookie> &cookies);
     void hostError(const QString &message);
+    void surfaceClosedByUser();
 };

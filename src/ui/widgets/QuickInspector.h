@@ -6,6 +6,7 @@
 
 class QLabel;
 class QPushButton;
+class QResizeEvent;
 
 class QuickInspector : public QFrame {
   Q_OBJECT
@@ -23,9 +24,15 @@ signals:
   void followRequested(int appid, const QString &marketHashName);
   void alertRequested(int appid, const QString &marketHashName);
 
+protected:
+  void resizeEvent(QResizeEvent *event) override;
+
 private:
+  void updateNameText();
+
   int m_appid = 0;
   QString m_hashName;
+  QString m_fullName;
   QLabel *m_name = nullptr;
   QLabel *m_game = nullptr;
   QLabel *m_price = nullptr;
@@ -36,4 +43,3 @@ private:
   QPushButton *m_follow = nullptr;
   QPushButton *m_alert = nullptr;
 };
-

@@ -3,6 +3,8 @@
 #include <QLocale>
 #include <QLabel>
 #include <QPushButton>
+#include <QResizeEvent>
+#include <QSizePolicy>
 #include <QStyle>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -43,7 +45,10 @@ QuickInspector::QuickInspector(QWidget *parent) : QFrame(parent) {
   m_name = new QLabel(QStringLiteral("选择一个物品查看摘要"), this);
   m_name->setObjectName(QStringLiteral("pageTitle"));
   m_name->setTextFormat(Qt::PlainText);
-  m_name->setWordWrap(true);
+  m_name->setWordWrap(false);
+  m_name->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  // 长名称保持单行并响应式省略，避免高 DPI 下与下一行文字重叠。
+  m_name->setMinimumHeight(38);
   layout->addWidget(m_name);
   m_game = new QLabel(this);
   m_game->setObjectName(QStringLiteral("mutedText"));
@@ -85,8 +90,11 @@ QuickInspector::QuickInspector(QWidget *parent) : QFrame(parent) {
 void QuickInspector::setItem(const MarketCatalogItemView &item, const QString &currency) {
   m_appid = item.appid;
   m_hashName = item.marketHashName;
-  m_name->setText(item.name);
-  m_name->setToolTip(item.marketHashName);
+  m_fullName = item.name;
+  updateNameText();
+  m_name->setToolTip(item.name == item.marketHashName
+                         ? item.name
+                         : QStringLiteral("%1\n%2").arg(item.name, item.marketHashName));
   m_game->setText(item.typeText.isEmpty() ? gameName(item.appid)
                                           : QStringLiteral("%1 · %2")
                                                 .arg(gameName(item.appid), item.typeText));
@@ -103,7 +111,9 @@ void QuickInspector::setItem(const MarketCatalogItemView &item, const QString &c
 void QuickInspector::clearItem() {
   m_appid = 0;
   m_hashName.clear();
-  m_name->setText(QStringLiteral("选择一个物品查看摘要"));
+  m_fullName = QStringLiteral("选择一个物品查看摘要");
+  updateNameText();
+  m_name->setToolTip(m_fullName);
   m_game->clear();
   m_price->setText(QStringLiteral("最低挂单价 —"));
   m_listings->setText(QStringLiteral("当前挂单量 —"));
@@ -112,6 +122,20 @@ void QuickInspector::clearItem() {
   m_analysis->setEnabled(false);
   m_follow->setEnabled(false);
   m_alert->setEnabled(false);
+}
+
+void QuickInspector::resizeEvent(QResizeEvent *event) {
+  QFrame::resizeEvent(event);
+  updateNameText();
+}
+
+void QuickInspector::updateNameText() {
+  if (!m_name) {
+    return;
+  }
+  const int availableWidth = qMax(80, m_name->contentsRect().width());
+  m_name->setText(m_name->fontMetrics().elidedText(m_fullName, Qt::ElideRight,
+                                                   availableWidth));
 }
 
 void QuickInspector::setInspection(const MarketInspectionView &inspection) {
@@ -140,4 +164,3 @@ void QuickInspector::setInspection(const MarketInspectionView &inspection) {
   style()->unpolish(m_depth);
   style()->polish(m_depth);
 }
-

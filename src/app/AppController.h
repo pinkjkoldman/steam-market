@@ -49,6 +49,7 @@ class TrayManager;
 class WelcomePage;
 class MarketOverviewPage;
 class MarketBrowserPage;
+class DetailPage;
 
 // 应用装配器：初始化数据库/服务/UI，驱动定时刷新与通知；含冒烟自测。
 class AppController : public QObject {
@@ -60,7 +61,9 @@ public:
 
     bool initialize();
     void show();
-    int runSmokeTest(const QString &pngPath, const QSize &windowSize = QSize(1280, 800));
+    void bringToFront();
+    int runSmokeTest(const QString &pngPath, const QSize &windowSize = QSize(1280, 800),
+                     const QString &scene = QStringLiteral("trading"));
 
 private:
     void buildServices(QSqlDatabase &db);
@@ -68,6 +71,7 @@ private:
     void wireSignals();
     void startRefreshTimer();
     void applySettings();
+    void accumulateHistory();
     void releaseRepositories();
     bool seedDemoData(QSqlDatabase &db);
     bool verifyCore(QSqlDatabase &db, int *triggeredCount);
@@ -110,8 +114,11 @@ private:
     WelcomePage *m_welcomePage = nullptr;
     MarketOverviewPage *m_overviewPage = nullptr;
     MarketBrowserPage *m_browserPage = nullptr;
+    DetailPage *m_detailPage = nullptr;
     TrayManager *m_tray = nullptr;
     QTimer *m_refreshTimer = nullptr;
+    QTimer *m_historyTimer = nullptr;
     bool m_servicesBuilt = false;
+    bool m_historyLoginPending = false;
     QSqlDatabase m_db;
 };

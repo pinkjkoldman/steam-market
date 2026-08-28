@@ -7,8 +7,12 @@
 #include <QStyle>
 #include <QVBoxLayout>
 
+#include "ui/widgets/WorkbenchTheme.h"
+
 AccountCard::AccountCard(QWidget *parent) : QFrame(parent) {
   setObjectName(QStringLiteral("accountCard"));
+  setProperty("workbench", true);
+  setStyleSheet(WorkbenchTheme::styleSheet());
   setMinimumHeight(80);
   setCursor(Qt::PointingHandCursor);
 
@@ -23,6 +27,7 @@ AccountCard::AccountCard(QWidget *parent) : QFrame(parent) {
   auto *text = new QVBoxLayout();
   text->setSpacing(2);
   m_title = new QLabel(QStringLiteral("请选择使用方式"), this);
+  m_title->setObjectName(QStringLiteral("accountTitle"));
   m_title->setTextFormat(Qt::PlainText);
   m_subtitle = new QLabel(QStringLiteral("游客浏览或登录 Steam"), this);
   m_subtitle->setObjectName(QStringLiteral("mutedText"));
@@ -115,4 +120,3 @@ void AccountCard::updateMenuAction() {
       break;
   }
 }
-

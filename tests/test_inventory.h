@@ -11,5 +11,9 @@ private slots:
     void repositoryCompletesAtomicSnapshot();
     void fixedPriceDraftUsesMinorUnits();
     void handoffSplitsLargeSelections();
+    void singleItemHandoffUsesOfficialSteamPages();
+    void tradeOfferHandoffValidatesPartner();
     void sessionDerivesSteamIdFromLoginCookie();
+    void inventoryRequestUsesSteamSupportedPageSize();
+    void dropdownThemeStylesPopupItems();
 };

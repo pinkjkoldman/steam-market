@@ -1,16 +1,22 @@
 #include "ui/pages/MarketPage.h"
 
-#include <QHeaderView>
 #include <QComboBox>
+#include <QFrame>
+#include <QHeaderView>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSet>
+#include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QTableView>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
 #include "core/services/MarketService.h"
+#include "ui/widgets/IconCache.h"
+#include "ui/widgets/LoadingOverlay.h"
 #include "utils/Currency.h"
 #include "utils/CurrencyProvider.h"
 
@@ -64,30 +70,88 @@ MarketPage::MarketPage(MarketService *service, QWidget *parent)
     m_status = new QLabel(QStringLiteral("输入关键词开始搜索，也可直接按 Enter"), this);
     m_status->setObjectName(QStringLiteral("inlineStatus"));
 
-    auto *layout = new QVBoxLayout(this);
-    layout->addLayout(topRow);
-    layout->setContentsMargins(0, 4, 0, 0);
-    layout->setSpacing(12);
-    layout->addWidget(m_table, 1);
-    layout->addWidget(m_status);
+    m_moreBtn = new QPushButton(QStringLiteral("加载更多"), this);
+    m_moreBtn->setVisible(false);
+    m_moreBtn->setToolTip(QStringLiteral("搜索默认每页 30 条，点击加载下一页结果"));
+    auto *moreRow = new QHBoxLayout();
+    moreRow->addStretch(1);
+    moreRow->addWidget(m_moreBtn);
+    moreRow->addStretch(1);
 
+    m_card = new QFrame(this);
+    m_card->setObjectName(QStringLiteral("pageCard"));
+    auto *cardLayout = new QVBoxLayout(m_card);
+    cardLayout->setContentsMargins(16, 16, 16, 16);
+    cardLayout->setSpacing(12);
+    cardLayout->addLayout(topRow);
+    cardLayout->addWidget(m_table, 1);
+    cardLayout->addLayout(moreRow);
+    cardLayout->addWidget(m_status);
+
+    m_emptyState = new QWidget(this);
+    auto *emptyLayout = new QVBoxLayout(m_emptyState);
+    emptyLayout->setAlignment(Qt::AlignCenter);
+    emptyLayout->setSpacing(8);
+    m_emptyIcon = new QLabel(QStringLiteral("🔍"), m_emptyState);
+    m_emptyIcon->setObjectName(QStringLiteral("emptyStateIcon"));
+    m_emptyIcon->setAlignment(Qt::AlignCenter);
+    m_emptyTitle = new QLabel(QStringLiteral("输入关键词开始搜索"), m_emptyState);
+    m_emptyTitle->setObjectName(QStringLiteral("emptyStateTitle"));
+    m_emptyTitle->setAlignment(Qt::AlignCenter);
+    m_emptySubtitle = new QLabel(QStringLiteral("试试输入 AK-47、Asiimov 等物品名称"), m_emptyState);
+    m_emptySubtitle->setObjectName(QStringLiteral("emptyStateSubtitle"));
+    m_emptySubtitle->setAlignment(Qt::AlignCenter);
+    emptyLayout->addWidget(m_emptyIcon);
+    emptyLayout->addWidget(m_emptyTitle);
+    emptyLayout->addWidget(m_emptySubtitle);
+
+    auto *viewStack = new QStackedWidget(this);
+    viewStack->addWidget(m_card);
+    viewStack->addWidget(m_emptyState);
+
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(viewStack, 1);
+
+    m_loading = new LoadingOverlay(this);
+    m_loading->setText(QStringLiteral("正在搜索 Steam 市场…"));
     connect(m_searchButton, &QPushButton::clicked, this, &MarketPage::runSearch);
     connect(m_search, &QLineEdit::returnPressed, this, &MarketPage::runSearch);
     connect(m_game, qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this](int) { runSearch(); });
     connect(m_table, &QTableView::activated, this, &MarketPage::openCurrentItem);
+    connect(m_moreBtn, &QPushButton::clicked, this, &MarketPage::loadMore);
+    connect(IconCache::instance(), &IconCache::ready, this, &MarketPage::onIconReady);
 
     connect(m_service, &MarketService::searchFinished, this, &MarketPage::render);
 }
 
 void MarketPage::runSearch() {
     if (!m_searchButton->isEnabled()) return;
+    m_query = m_search->text().trimmed();
+    m_appid = m_game->currentData().toInt();
+    m_total = 0;
+    m_appending = false;
+    m_moreBtn->setVisible(false);
     m_searchButton->setEnabled(false);
     m_searchButton->setText(QStringLiteral("搜索中…"));
     m_table->setEnabled(false);
     m_status->setProperty("error", false);
     m_status->setText(QStringLiteral("搜索中…"));
-    m_service->search(m_search->text(), m_game->currentData().toInt());
+    m_loading->setText(QStringLiteral("正在搜索 Steam 市场…"));
+    m_loading->show();
+    m_service->search(m_query, m_appid, 0);
+}
+
+void MarketPage::loadMore() {
+    if (m_query.isEmpty() || m_appending) return;
+    m_appending = true;
+    m_moreBtn->setEnabled(false);
+    m_moreBtn->setText(QStringLiteral("加载中…"));
+    m_loading->setText(QStringLiteral("正在加载更多结果…"));
+    m_loading->show();
+    m_service->search(m_query, m_appid, m_model->rowCount());
 }
 
 void MarketPage::setGame(int appid) {
@@ -97,8 +161,10 @@ void MarketPage::setGame(int appid) {
     }
 }
 
-void MarketPage::render(const QVector<MarketItem> &items, const QString &error) {
-    m_model->removeRows(0, m_model->rowCount());
+void MarketPage::render(const QVector<MarketItem> &items, int totalCount, const QString &error) {
+    const bool append = m_appending;
+    m_appending = false;
+    m_loading->hide();
     m_searchButton->setEnabled(true);
     m_searchButton->setText(QStringLiteral("搜索行情"));
     m_table->setEnabled(true);
@@ -106,18 +172,50 @@ void MarketPage::render(const QVector<MarketItem> &items, const QString &error) 
     m_status->setStyleSheet(error.isEmpty() ? QString() : kErrorStyle);
     if (!error.isEmpty()) {
         m_status->setText(QStringLiteral("搜索失败：%1").arg(error));
+        updateMoreButton();
+        updateEmptyState(false);
         return;
     }
-    if (items.isEmpty()) {
+    if (!append) m_model->removeRows(0, m_model->rowCount());
+    if (items.isEmpty() && !append) {
         m_status->setText(QStringLiteral("无匹配物品，请尝试其他关键词"));
+        m_total = 0;
+        updateMoreButton();
+        updateEmptyState(true);
         return;
+    }
+    appendItems(items);
+    if (totalCount >= 0) m_total = totalCount;
+    updateMoreButton();
+    m_status->setText(QStringLiteral("已展示 %1 / 共 %2 条  ·  双击或按 Enter 查看详情")
+                          .arg(m_model->rowCount())
+                          .arg(m_total > 0 ? m_total : m_model->rowCount()));
+    if (!append) m_table->selectRow(0);
+    updateEmptyState(false);
+}
+
+void MarketPage::updateEmptyState(bool empty) {
+    auto *stack = qobject_cast<QStackedWidget *>(layout()->itemAt(0)->widget());
+    if (stack) stack->setCurrentIndex(empty ? 1 : 0);
+}
+
+void MarketPage::appendItems(const QVector<MarketItem> &items) {
+    // 分页追加：已存在的 market_hash_name 不重复添加。
+    QSet<QString> existing;
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        existing.insert(m_model->item(row, 0)->data(Qt::UserRole).toString());
     }
     const QString symbol = Currency::displaySymbol(CurrencyProvider::code());
     for (const MarketItem &item : items) {
+        if (existing.contains(item.marketHashName)) continue;
+        existing.insert(item.marketHashName);
         auto *nameItem = new QStandardItem(item.name);
         nameItem->setData(item.marketHashName, Qt::UserRole);
         nameItem->setData(item.appid, Qt::UserRole + 1);
+        nameItem->setData(item.iconUrl, Qt::UserRole + 2);
         nameItem->setToolTip(item.marketHashName);
+        const QPixmap pix = IconCache::instance()->pixmap(item.iconUrl);
+        if (!pix.isNull()) nameItem->setIcon(QIcon(pix));
         auto *priceItem = new QStandardItem(item.hasPrice
                                                 ? symbol + QString::number(item.price, 'f', 2)
                                                 : QStringLiteral("—"));
@@ -126,8 +224,23 @@ void MarketPage::render(const QVector<MarketItem> &items, const QString &error) 
                                                           : QStringLiteral("—"));
         m_model->appendRow({nameItem, priceItem, volItem});
     }
-    m_status->setText(QStringLiteral("共 %1 条结果  ·  双击或按 Enter 查看详情").arg(items.size()));
-    m_table->selectRow(0);
+}
+
+void MarketPage::updateMoreButton() {
+    const bool hasMore = m_total > m_model->rowCount();
+    m_moreBtn->setVisible(hasMore);
+    m_moreBtn->setEnabled(true);
+    m_moreBtn->setText(QStringLiteral("加载更多（剩余 %1 条）")
+                           .arg(m_total - m_model->rowCount()));
+}
+
+void MarketPage::onIconReady(const QString &iconPath, const QPixmap &pixmap) {
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        QStandardItem *nameItem = m_model->item(row, 0);
+        if (nameItem && nameItem->data(Qt::UserRole + 2).toString() == iconPath) {
+            nameItem->setIcon(QIcon(pixmap));
+        }
+    }
 }
 void MarketPage::openCurrentItem() {
     const QModelIndex idx = m_table->currentIndex();

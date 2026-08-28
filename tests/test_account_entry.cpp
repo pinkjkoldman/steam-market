@@ -31,6 +31,7 @@ public:
         cookie.setPath(QStringLiteral("/"));
         emit sessionCookiesReady(steamId, {cookie});
     }
+    void closeSurface() { emit surfaceClosedByUser(); }
     int showLoginCount = 0;
     int clearCount = 0;
     int prepareCount = 0;
@@ -116,6 +117,19 @@ void TestAccountEntry::cancelDiscardsLatePreparation() {
     host.complete(FreshSessionResult::Ready);
     QCOMPARE(host.showLoginCount, 0);
     QCOMPARE(service.snapshot().state, IdentityState::ChoiceRequired);
+}
+
+void TestAccountEntry::closingLoginSurfaceRestoresOrigin() {
+    FakeSessionHost host;
+    QNetworkAccessManager network;
+    SteamSessionService service(&host, &network);
+    QSignalSpy closed(&service, &SteamSessionService::loginSurfaceClosed);
+    QVERIFY(service.beginOfficialLogin());
+    host.complete(FreshSessionResult::Ready);
+    QCOMPARE(service.snapshot().state, IdentityState::Authenticating);
+    host.closeSurface();
+    QCOMPARE(service.snapshot().state, IdentityState::ChoiceRequired);
+    QCOMPARE(closed.count(), 1);
 }
 
 void TestAccountEntry::logoutClearsBothCookieStores() {

@@ -30,6 +30,7 @@ void TestOrderbook::roundtrip() {
     }
     book.highestBuy = 90.0;
     book.lowestSell = 95.0;
+    book.steamCurrencyId = 23;
     book.fetchedAt = QDateTime::currentDateTimeUtc();
     QVERIFY(repo.save(book));
 
@@ -38,6 +39,7 @@ void TestOrderbook::roundtrip() {
     QCOMPARE(read.sellOrders.size(), 3);
     QCOMPARE(read.highestBuy, 90.0);
     QCOMPARE(read.lowestSell, 95.0);
+    QCOMPARE(read.steamCurrencyId, 23);
     QCOMPARE(read.buyOrders.first().price, 90.0);
     QCOMPARE(read.sellOrders.last().count, 7);
     QVERIFY(read.stale);

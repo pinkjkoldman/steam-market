@@ -18,6 +18,8 @@ public:
     QVector<KlineBar> dailyBars(const QString &marketHashName, int appid,
                                 const QString &currency,
                                 int maxDays = 0) const;
+    QVector<KlineBar> barsFromPoints(const QVector<PricePoint> &points,
+                                     int maxDays = 0) const;
     // 当日分时点（最近 24h 快照/历史点）。
     QVector<PricePoint> minutePoints(const QString &marketHashName, int appid,
                                      const QString &currency) const;
