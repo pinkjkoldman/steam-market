@@ -4,6 +4,9 @@ QT += core gui sql network testlib
 CONFIG += c++17 console
 CONFIG -= app_bundle
 
+# 与主工程一致：严格警告作为发布质量门槛
+QMAKE_CXXFLAGS_WARN_ON += -Wextra
+
 DESTDIR = $$PWD/../bin
 OBJECTS_DIR = $$PWD/../build/test_obj
 MOC_DIR = $$PWD/../build/test_moc

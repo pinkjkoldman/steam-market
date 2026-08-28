@@ -7,6 +7,9 @@ CONFIG -= app_bundle
 
 DEFINES += QT_DEPRECATED_WARNINGS
 
+# 严格警告：作为发布质量门槛，新增代码不应引入新警告
+QMAKE_CXXFLAGS_WARN_ON += -Wextra
+
 RC_ICONS = ui/icons/app.ico
 
 DESTDIR = $$PWD/../bin
